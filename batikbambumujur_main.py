@@ -345,7 +345,7 @@ def show_login_form(language):
             password = st.text_input("Password", type="password", key="login_password")
             
             submitted = st.form_submit_button("Login", 
-                                             use_container_width=True,
+                                             width='stretch',
                                              type="primary")
         
         if submitted:
@@ -1260,15 +1260,15 @@ def show_results(language):
         # Export results
         st.markdown("### 📤 Export Hasil")
         
-        if st.button("💾 Simpan sebagai Template", use_container_width=True):
+        if st.button("💾 Simpan sebagai Template", width='stretch'):
             # Save template functionality would go here
             st.success("Template berhasil disimpan!")
         
-        if st.button("📄 Export ke Excel", use_container_width=True):
+        if st.button("📄 Export ke Excel", width='stretch'):
             # Export to Excel functionality would go here
             st.success("Data berhasil diexport ke Excel!")
         
-        if st.button("🖨️ Cetak Laporan", use_container_width=True):
+        if st.button("🖨️ Cetak Laporan", width='stretch'):
             # Print functionality would go here
             st.success("Laporan siap dicetak!")
 
@@ -1494,11 +1494,11 @@ def display_header(language):
         try:
             logo_path = Path(__file__).parent / "static/logo_batik.png"
             if os.path.exists(logo_path):
-                st.image(logo_path, width=120, use_container_width=True)
+                st.image(logo_path, width=120, width='stretch')
             else:
-                st.image(DEFAULT_IMAGE, width=120, caption="Logo", use_container_width=True)
+                st.image(DEFAULT_IMAGE, width=120, caption="Logo", width='stretch')
         except:
-            st.image(DEFAULT_IMAGE, width=120, caption="Logo", use_container_width=True)
+            st.image(DEFAULT_IMAGE, width=120, caption="Logo", width='stretch')
     with col2:
         st.markdown(f"""
         <h1 style="margin-bottom: 0; color: #000000;">{LANGUAGES[language]["title"]}</h1>
@@ -1631,7 +1631,7 @@ def product_card(product, language):
                 if st.button(
                     "✏️ Edit Product",
                     key=f"edit_{product_id}",
-                    use_container_width=True
+                    width='stretch'
                 ):
                     st.session_state['edit_product'] = product_id
     
@@ -1667,7 +1667,7 @@ def activity_card(activity, language):
                 if st.button(
                     "✏️ Edit Activity",
                     key=f"edit_activity_{activity.get('id', '')}",
-                    use_container_width=True
+                    width='stretch'
                 ):
                     st.session_state['edit_activity'] = activity.get('id', '')
     
@@ -1695,7 +1695,7 @@ def award_card(award, language):
                 if st.button(
                     "✏️ Edit Award",
                     key=f"edit_award_{award.get('id', '')}",
-                    use_container_width=True
+                    width='stretch'
                 ):
                     st.session_state['edit_award'] = award.get('id', '')
     
@@ -1726,7 +1726,7 @@ def activity_card(activity, language):
                 if st.button(
                     "✏️ Edit Activity",
                     key=f"edit_activity_{activity.get('id', '')}",
-                    use_container_width=True
+                    width='stretch'
                 ):
                     st.session_state['edit_activity'] = activity.get('id', '')
     
@@ -1754,7 +1754,7 @@ def award_card(award, language):
                 if st.button(
                     "✏️ Edit Award",
                     key=f"edit_award_{award.get('id', '')}",
-                    use_container_width=True
+                    width='stretch'
                 ):
                     st.session_state['edit_award'] = award.get('id', '')
     
@@ -1971,7 +1971,7 @@ def show_analytics_dashboard(language):
             font=dict(family="Inter", color="#000000")
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     else:
         st.warning("No visitor data available" if language == "English" else "Tidak ada data pengunjung tersedia")
 
@@ -2042,7 +2042,7 @@ def show_manage_page(language):
                 )
                 
                 submitted = st.form_submit_button(f"{'Save Product' if language == 'English' else 'Simpan Produk'}",
-                                                use_container_width=True)
+                                                width='stretch')
                 
                 if submitted:
                     if not all([name, category, materials, price, description]):
@@ -2154,7 +2154,7 @@ def show_manage_page(language):
                     )
                     
                     submitted = st.form_submit_button(f"{'Update Product' if language == 'English' else 'Update Produk'}",
-                                                    use_container_width=True)
+                                                    width='stretch')
                     
                     if submitted:
                         if not all([name, category, materials, price, description]):
@@ -2217,14 +2217,14 @@ def show_manage_page(language):
                 with col1:
                     if st.button(f"{'Confirm Delete' if language == 'English' else 'Konfirmasi Hapus'}", 
                                 key="confirm_prod_delete",
-                                use_container_width=True,
+                                width='stretch',
                                 type="primary"):
                         if delete_record("products", product_data["id"]):
                             st.success(f"{'Product deleted successfully!' if language == 'English' else 'Produk berhasil dihapus!'}")
                 with col2:
                     if st.button(f"{'Cancel' if language == 'English' else 'Batal'}", 
                                key="cancel_prod_delete",
-                               use_container_width=True):
+                               width='stretch'):
                         st.experimental_rerun()
 
 # --- SETTINGS PAGE ---
@@ -2259,12 +2259,12 @@ def show_settings_page(language):
             col1, col2 = st.columns(2)
             with col1:
                 if st.button(f"🔵 {LANGUAGES[language]['backup']}", 
-                            use_container_width=True,
+                            width='stretch',
                             help="Backup all data to a file"):
                     st.warning("Backup functionality not yet implemented")
             with col2:
                 if st.button(f"🟢 {LANGUAGES[language]['restore']}", 
-                            use_container_width=True,
+                            width='stretch',
                             help="Restore data from a backup file"):
                     st.warning("Restore functionality not yet implemented")
             
@@ -2278,7 +2278,7 @@ def show_settings_page(language):
                 confirm_password = st.text_input("Confirm New Password", type="password", key="confirm_pass")
                 
                 submitted = st.form_submit_button("Change Password", 
-                                                use_container_width=True)
+                                                width='stretch')
                 
                 if submitted:
                     if not all([current_password, new_password, confirm_password]):
@@ -2315,7 +2315,7 @@ def show_settings_page(language):
             new_order_alerts = st.checkbox("New Order Alerts", value=True)
             
             if st.button("Save Notification Settings", 
-                        use_container_width=True):
+                        width='stretch'):
                 st.success("Notification settings saved!")
 
 # --- INVENTORY MANAGEMENT PAGES ---
@@ -2396,7 +2396,7 @@ def manage_inventory_items(language):
                 notes = st.text_area(f"{'Notes' if language == 'English' else 'Catatan'}", key="inv_notes")
                 
                 submitted = st.form_submit_button(f"{'Save Item' if language == 'English' else 'Simpan Item'}",
-                                                use_container_width=True)
+                                                width='stretch')
                 
                 if submitted:
                     if not all([item_name, item_type, current_stock, minimum_stock, unit, price_per_unit]):
@@ -2486,7 +2486,7 @@ def manage_inventory_items(language):
                                         value=item_data["notes"], key="edit_inv_notes")
                     
                     submitted = st.form_submit_button(f"{'Update Item' if language == 'English' else 'Update Item'}",
-                                                    use_container_width=True)
+                                                    width='stretch')
                     
                     if submitted:
                         if not all([item_name, item_type, current_stock, minimum_stock, unit, price_per_unit]):
@@ -2542,14 +2542,14 @@ def manage_inventory_items(language):
                 with col1:
                     if st.button(f"{'Confirm Delete' if language == 'English' else 'Konfirmasi Hapus'}", 
                                 key="confirm_inv_delete",
-                                use_container_width=True,
+                                width='stretch',
                                 type="primary"):
                         if delete_record("inventory", item_data["id"]):
                             st.success(f"{'Item deleted successfully!' if language == 'English' else 'Item berhasil dihapus!'}")
                 with col2:
                     if st.button(f"{'Cancel' if language == 'English' else 'Batal'}", 
                                key="cancel_inv_delete",
-                               use_container_width=True):
+                               width='stretch'):
                         st.experimental_rerun()
 
 def view_inventory_history(language):
@@ -2636,7 +2636,7 @@ def view_inventory_history(language):
                 "total_value": LANGUAGES[language]["total_value"],
                 "notes": LANGUAGES[language]["notes"]
             }),
-            use_container_width=True,
+            width='stretch',
             height=400
         )
         
@@ -2683,7 +2683,7 @@ def view_inventory_history(language):
                 font=dict(family="Inter", color="#000000")
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
 def show_inventory_warnings(language):
     """Show inventory warnings for low and out of stock items"""
@@ -2723,7 +2723,7 @@ def show_inventory_warnings(language):
                     "unit": LANGUAGES[language]["unit"],
                     "supplier": LANGUAGES[language]["supplier"]
                 }),
-                use_container_width=True
+                width='stretch'
             )
             
             # Add stock form
@@ -2748,7 +2748,7 @@ def show_inventory_warnings(language):
                     )
                     
                     submitted = st.form_submit_button(f"{'Add Stock' if language == 'English' else 'Tambah Stok'}",
-                                                    use_container_width=True)
+                                                    width='stretch')
                     
                     if submitted:
                         item_id = low_stock[low_stock["item_name"] == selected_item].iloc[0]["id"]
@@ -2772,7 +2772,7 @@ def show_inventory_warnings(language):
                     "unit": LANGUAGES[language]["unit"],
                     "supplier": LANGUAGES[language]["supplier"]
                 }),
-                use_container_width=True
+                width='stretch'
             )
             
             # Add stock form
@@ -2797,7 +2797,7 @@ def show_inventory_warnings(language):
                     )
                     
                     submitted = st.form_submit_button(f"{'Add Stock' if language == 'English' else 'Tambah Stok'}",
-                                                    use_container_width=True)
+                                                    width='stretch')
                     
                     if submitted:
                         item_id = out_of_stock[out_of_stock["item_name"] == selected_item].iloc[0]["id"]
@@ -2887,7 +2887,7 @@ def manage_financial_transactions(language):
                 notes = st.text_area(f"{'Notes' if language == 'English' else 'Catatan'}", key="finance_notes")
                 
                 submitted = st.form_submit_button(f"{'Save Transaction' if language == 'English' else 'Simpan Transaksi'}",
-                                                use_container_width=True)
+                                                width='stretch')
                 
                 if submitted:
                     if not all([transaction_date, transaction_type, category, value, description]):
@@ -2982,7 +2982,7 @@ def manage_financial_transactions(language):
                                         value=transaction_data["notes"], key="edit_finance_notes")
                     
                     submitted = st.form_submit_button(f"{'Update Transaction' if language == 'English' else 'Update Transaksi'}",
-                                                    use_container_width=True)
+                                                    width='stretch')
                     
                     if submitted:
                         if not all([transaction_date, transaction_type, category, value, description]):
@@ -3037,14 +3037,14 @@ def manage_financial_transactions(language):
                 with col1:
                     if st.button(f"{'Confirm Delete' if language == 'English' else 'Konfirmasi Hapus'}", 
                                 key="confirm_finance_delete",
-                                use_container_width=True,
+                                width='stretch',
                                 type="primary"):
                         if delete_record("financial_transactions", transaction_id):
                             st.success(f"{'Transaction deleted successfully!' if language == 'English' else 'Transaksi berhasil dihapus!'}")
                 with col2:
                     if st.button(f"{'Cancel' if language == 'English' else 'Batal'}", 
                                key="cancel_finance_delete",
-                               use_container_width=True):
+                               width='stretch'):
                         st.experimental_rerun()
 
 def show_financial_reports(language):
@@ -3118,7 +3118,7 @@ def show_financial_reports(language):
                 "value": LANGUAGES[language]["value"],
                 "payment_method": "Payment Method"
             }),
-            use_container_width=True,
+            width='stretch',
             height=400
         )
         
@@ -3157,7 +3157,7 @@ def show_financial_reports(language):
                 font=dict(family="Inter", color="#000000")
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         
         with col2:
             # Expense by category
@@ -3182,7 +3182,7 @@ def show_financial_reports(language):
                     font=dict(family="Inter", color="#000000")
                 )
                 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             else:
                 st.info(f"{'No expense data available' if language == 'English' else 'Tidak ada data pengeluaran tersedia'}")
 
@@ -3202,11 +3202,11 @@ def main():
         try:
             logo_path = Path(__file__).parent / "static/logo_batik.png"
             if os.path.exists(logo_path):
-                st.image(logo_path, width=120, use_container_width=True)
+                st.image(logo_path, width=120, width='stretch')
             else:
-                st.image(DEFAULT_IMAGE, width=120, caption="Logo", use_container_width=True)
+                st.image(DEFAULT_IMAGE, width=120, caption="Logo", width='stretch')
         except:
-            st.image(DEFAULT_IMAGE, width=120, caption="Logo", use_container_width=True)
+            st.image(DEFAULT_IMAGE, width=120, caption="Logo", width='stretch')
         
         st.markdown("---")
         
@@ -3251,7 +3251,7 @@ def main():
         if st.session_state["is_admin"]:
             if st.button(
                 f"🚪 {LANGUAGES[language]['logout']}", 
-                use_container_width=True,
+                width='stretch',
                 key="sidebar_logout"
             ):
                 st.session_state["is_admin"] = False
