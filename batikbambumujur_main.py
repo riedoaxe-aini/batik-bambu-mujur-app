@@ -428,67 +428,119 @@ def get_google_creds():
 # --- GOOGLE SHEETS CONNECTION ---
 @st.cache_resource(ttl=3600)
 def get_google_sheet(sheet_name="products"):
-    """Establish connection to Google Sheets with retry logic"""
+    """Establish connection to Google Sheets with comprehensive error handling"""
     # If no credentials, return None to allow app to run in limited mode
     creds_data = get_google_creds()
     if not creds_data:
+        st.sidebar.warning("⚠️ Tidak ada kredensial Google Sheets yang ditemukan")
         return None
         
-    max_retries = 3
+    max_retries = 2
     for attempt in range(max_retries):
         try:
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(
-                creds_data, 
-                CREDS_SCOPES
-            )
+            # Create credentials and authorize client
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_data, CREDS_SCOPES)
             client = gspread.authorize(creds)
             
-            # Try to open the worksheet, create if doesn't exist
+            # Try to open the spreadsheet
             try:
-                sheet = client.open("BatikGalleryData").worksheet(sheet_name)
-            except gspread.exceptions.WorksheetNotFound:
-                # Create new worksheet with appropriate headers
                 spreadsheet = client.open("BatikGalleryData")
-                if sheet_name == "activities":
-                    sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=10)
-                    sheet.append_row(["id", "title", "date", "description", "image_path"])
-                elif sheet_name == "awards":
-                    sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=10)
-                    sheet.append_row(["id", "title", "organization", "year", "image_path"])
-                elif sheet_name == "inventory":
-                    sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=20)
-                    sheet.append_row(["id", "item_name", "item_type", "supplier", "current_stock", 
-                                    "minimum_stock", "unit", "price_per_unit", "total_value", 
-                                    "notes", "last_updated"])
-                elif sheet_name == "inventory_history":
-                    sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=20)
-                    sheet.append_row(["id", "item_id", "transaction_date", "transaction_type", 
-                                    "amount", "notes", "unit_price", "total_value"])
-                elif sheet_name == "financial_transactions":
-                    sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=20)
-                    sheet.append_row(["id", "transaction_date", "transaction_type", "category", 
-                                    "description", "value", "payment_method", "reference", "notes"])
-                elif sheet_name == "production_costs":
-                    sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=20)
-                    sheet.append_row(["id", "product_id", "component_name", "component_type", 
-                                    "quantity", "unit", "unit_cost", "total_cost", "notes"])
-                else:  # Default to products sheet
-                    sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=20)
-                    sheet.append_row(["id", "name", "description", "price", "discount", "category", 
-                                    "materials", "creation_date", "image_path", 
-                                    "shopee_link", "tokopedia_link", "other_link", 
-                                    "payment_methods"])
+            except gspread.exceptions.SpreadsheetNotFound:
+                st.sidebar.error("❌ Spreadsheet 'BatikGalleryData' tidak ditemukan")
+                st.sidebar.info("ℹ️ Pastikan:")
+                st.sidebar.info("1. Spreadsheet sudah dibuat di Google Drive")
+                st.sidebar.info("2. Nama tepat 'BatikGalleryData'")
+                st.sidebar.info("3. Sudah di-share dengan service account")
+                return None
+            except Exception as e:
+                st.sidebar.error(f"❌ Error membuka spreadsheet: {str(e)}")
+                return None
             
-            return sheet
+            # Try to get the worksheet
+            try:
+                sheet = spreadsheet.worksheet(sheet_name)
+                st.sidebar.success(f"✅ Berhasil mengakses worksheet: {sheet_name}")
+                return sheet
+                
+            except gspread.exceptions.WorksheetNotFound:
+                # Create new worksheet if it doesn't exist
+                try:
+                    st.sidebar.info(f"📝 Worksheet '{sheet_name}' tidak ditemukan, membuat baru...")
+                    
+                    if sheet_name == "products":
+                        sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=15)
+                        sheet.append_row(["id", "name", "description", "price", "discount", "category", 
+                                        "materials", "creation_date", "image_path", 
+                                        "shopee_link", "tokopedia_link", "other_link", 
+                                        "payment_methods", "status", "stock"])
+                    elif sheet_name == "activities":
+                        sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=8)
+                        sheet.append_row(["id", "title", "date", "description", "image_path", 
+                                        "location", "participants", "status"])
+                    elif sheet_name == "awards":
+                        sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=8)
+                        sheet.append_row(["id", "title", "organization", "year", "image_path", 
+                                        "category", "description", "level"])
+                    elif sheet_name == "inventory":
+                        sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=12)
+                        sheet.append_row(["id", "item_name", "item_type", "supplier", "current_stock", 
+                                        "minimum_stock", "unit", "price_per_unit", "total_value", 
+                                        "notes", "last_updated", "status"])
+                    elif sheet_name == "inventory_history":
+                        sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=10)
+                        sheet.append_row(["id", "item_id", "transaction_date", "transaction_type", 
+                                        "amount", "notes", "unit_price", "total_value", 
+                                        "user", "reference"])
+                    elif sheet_name == "financial_transactions":
+                        sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=12)
+                        sheet.append_row(["id", "transaction_date", "transaction_type", "category", 
+                                        "description", "value", "payment_method", "reference", 
+                                        "notes", "status", "user", "approval_date"])
+                    elif sheet_name == "production_costs":
+                        sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=12)
+                        sheet.append_row(["id", "product_id", "component_name", "component_type", 
+                                        "quantity", "unit", "unit_cost", "total_cost", 
+                                        "notes", "supplier", "date_added", "status"])
+                    else:
+                        # Default worksheet
+                        sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=10)
+                        sheet.append_row(["id", "name", "description", "created_date", "status"])
+                    
+                    st.sidebar.success(f"✅ Worksheet '{sheet_name}' berhasil dibuat")
+                    return sheet
+                    
+                except Exception as create_error:
+                    st.sidebar.error(f"❌ Gagal membuat worksheet: {str(create_error)}")
+                    return None
+                    
+            except Exception as worksheet_error:
+                st.sidebar.error(f"❌ Error mengakses worksheet: {str(worksheet_error)}")
+                return None
+                
         except gspread.exceptions.APIError as e:
             if attempt == max_retries - 1:
-                st.error(f"❌ Failed to connect to Google Sheets after {max_retries} attempts: {str(e)}")
+                error_msg = str(e)
+                if "PERMISSION_DENIED" in error_msg:
+                    st.sidebar.error("❌ Permission denied. Pastikan:")
+                    st.sidebar.info("1. Google Sheets API sudah di-enable")
+                    st.sidebar.info("2. Service account punya akses ke spreadsheet")
+                    st.sidebar.info("3. Spreadsheet sudah di-share dengan service account")
+                elif "QUOTA_EXCEEDED" in error_msg:
+                    st.sidebar.error("❌ Quota exceeded. Coba lagi nanti.")
+                else:
+                    st.sidebar.error(f"❌ Google Sheets API Error: {error_msg}")
                 return None
-            time.sleep(2)  # Wait before retrying
+            time.sleep(1)  # Wait before retrying
             continue
+            
         except Exception as e:
-            st.error(f"❌ Unexpected error connecting to Google Sheets: {str(e)}")
-            return None
+            if attempt == max_retries - 1:
+                st.sidebar.error(f"❌ Unexpected error: {str(e)}")
+                return None
+            time.sleep(1)
+            continue
+    
+    return None
 
 # --- IMAGE HANDLING ---
 def generate_unique_filename(original_name):
@@ -554,31 +606,147 @@ def display_image(image_path, width=300):
 # --- DATA OPERATIONS ---
 @st.cache_data(ttl=600)
 def get_all_products():
+    """Get all products with comprehensive error handling"""
     try:
         sheet = get_google_sheet("products")
-        records = sheet.get_all_records()
+        
+        # Check if sheet is None (connection failed)
+        if sheet is None:
+            st.warning("⚠️ Tidak terhubung ke Google Sheets. Mode offline diaktifkan.")
+            return get_fallback_products()
+        
+        try:
+            records = sheet.get_all_records()
+        except Exception as e:
+            st.error(f"❌ Gagal membaca data dari sheet: {str(e)}")
+            return get_fallback_products()
         
         if not records:
-            st.error("Tidak bisa mengambil data produk - spreadsheet kosong")
-            return pd.DataFrame(columns=["id", "name", "description", "price", "discount", "image_path"])
+            st.info("📝 Spreadsheet produk kosong. Tambahkan data pertama Anda.")
+            return get_fallback_products()
             
         df = pd.DataFrame(records)
         
-        # Validate important columns
-        required_columns = ["id", "name", "description", "price", "discount", "image_path", "category", "materials", "creation_date"]
-        for col in required_columns:
+        # Validate and ensure required columns exist
+        required_columns = {
+            "id": 0,
+            "name": "Unnamed Product",
+            "description": "No description available",
+            "price": 0,
+            "discount": 0,
+            "category": "Uncategorized",
+            "materials": "Not specified",
+            "creation_date": datetime.now().strftime("%Y-%m-%d"),
+            "image_path": "https://placehold.co/300x300/4a6fa5/white?text=No+Image"
+        }
+        
+        for col, default_value in required_columns.items():
             if col not in df.columns:
-                if col == "discount":
-                    df["discount"] = 0  # Default discount to 0 if column doesn't exist
-                else:
-                    st.error(f"Kolom penting '{col}' tidak ditemukan dalam data")
-                    return pd.DataFrame(columns=required_columns)
-                
+                df[col] = default_value
+                st.warning(f"⚠️ Kolom '{col}' tidak ditemukan, menggunakan nilai default")
+        
         return df
         
     except Exception as e:
-        st.error(f"Gagal mengambil data produk: {str(e)}")
-        return pd.DataFrame(columns=["id", "name", "description", "price", "discount", "image_path", "category", "materials", "creation_date"])
+        st.error(f"❌ Gagal mengambil data produk: {str(e)}")
+        return get_fallback_products()
+
+# --- FALLBACK DATA FUNCTIONS ---
+def get_fallback_products():
+    """Return fallback products data when Google Sheets is not available"""
+    sample_data = {
+        "id": [1, 2, 3, 4, 5],
+        "name": ["Batik Parang Classic", "Batik Mega Mendung", "Batik Kawung", "Batik Sidomukti", "Batik Truntum"],
+        "description": [
+            "Batik Parang klasik dengan motif tradisional",
+            "Batik Mega Mendung dengan warna cerah",
+            "Batik Kawung motif geometris elegan", 
+            "Batik Sidomukti untuk acara formal",
+            "Batik Truntum simbol cerah abadi"
+        ],
+        "price": [450000, 550000, 350000, 650000, 500000],
+        "discount": [0, 10, 5, 0, 15],
+        "category": ["Traditional", "Traditional", "Geometric", "Formal", "Traditional"],
+        "materials": ["Katun Prima", "Sutra Alam", "Katun Jepang", "Sutra Premium", "Katun Mori"],
+        "creation_date": ["2024-01-15", "2024-02-20", "2024-01-30", "2024-03-10", "2024-02-05"],
+        "image_path": [
+            "https://placehold.co/300x300/4a6fa5/white?text=Batik+Parang",
+            "https://placehold.co/300x300/4a6fa5/white?text=Mega+Mendung",
+            "https://placehold.co/300x300/4a6fa5/white?text=Batik+Kawung",
+            "https://placehold.co/300x300/4a6fa5/white?text=Sidomukti",
+            "https://placehold.co/300x300/4a6fa5/white?text=Truntum"
+        ],
+        "shopee_link": ["", "", "", "", ""],
+        "tokopedia_link": ["", "", "", "", ""],
+        "other_link": ["", "", "", "", ""],
+        "payment_methods": ["Transfer Bank, COD", "Transfer Bank", "Transfer Bank, E-Wallet", "Transfer Bank", "Transfer Bank, COD"]
+    }
+    return pd.DataFrame(sample_data)
+
+
+def get_fallback_data(sheet_name):
+    """Return empty dataframe for various sheet types"""
+    if sheet_name == "activities":
+        return pd.DataFrame(columns=["id", "title", "date", "description", "image_path", "location"])
+    elif sheet_name == "awards":
+        return pd.DataFrame(columns=["id", "title", "organization", "year", "image_path", "category"])
+    elif sheet_name == "inventory":
+        return pd.DataFrame(columns=["id", "item_name", "item_type", "supplier", "current_stock", 
+                                   "minimum_stock", "unit", "price_per_unit", "total_value", 
+                                   "notes", "last_updated"])
+    elif sheet_name == "inventory_history":
+        return pd.DataFrame(columns=["id", "item_id", "transaction_date", "transaction_type", 
+                                   "amount", "notes", "unit_price", "total_value"])
+    elif sheet_name == "financial_transactions":
+        return pd.DataFrame(columns=["id", "transaction_date", "transaction_type", "category", 
+                                   "description", "value", "payment_method", "reference", "notes"])
+    elif sheet_name == "production_costs":
+        return pd.DataFrame(columns=["id", "product_id", "component_name", "component_type", 
+                                   "quantity", "unit", "unit_cost", "total_cost", "notes"])
+    else:
+        return pd.DataFrame(columns=["id", "name", "description"])
+
+
+# --- DEBUG AND TEST FUNCTIONS ---
+def debug_google_sheets_connection():
+    """Debug function to check Google Sheets connection"""
+    st.sidebar.header("🔍 Debug Google Sheets Connection")
+    
+    # Test credentials
+    creds_data = get_google_creds()
+    if creds_data:
+        st.sidebar.success("✅ Credentials ditemukan")
+        st.sidebar.text(f"Project: {creds_data.get('project_id', 'N/A')}")
+        st.sidebar.text(f"Client Email: {creds_data.get('client_email', 'N/A')}")
+    else:
+        st.sidebar.error("❌ Tidak ada credentials ditemukan")
+        return False
+    
+    # Test connection to products sheet
+    try:
+        sheet = get_google_sheet("products")
+        if sheet:
+            try:
+                records = sheet.get_all_records()
+                st.sidebar.success(f"✅ Terhubung! {len(records)} records ditemukan")
+                
+                # Show first few records
+                if records:
+                    st.sidebar.info("📋 Sample data:")
+                    for i, record in enumerate(records[:3]):
+                        st.sidebar.text(f"{i+1}. {record.get('name', 'No name')} - Rp {record.get('price', 0):,}")
+                
+                return True
+            except Exception as e:
+                st.sidebar.error(f"❌ Gagal membaca records: {str(e)}")
+                return False
+        else:
+            st.sidebar.error("❌ Gagal terhubung ke Google Sheets")
+            return False
+            
+    except Exception as e:
+        st.sidebar.error(f"❌ Error: {str(e)}")
+        return False
 
 @st.cache_data(ttl=600)
 def get_all_activities():
@@ -683,6 +851,58 @@ def get_production_costs():
         st.error(f"Gagal mengambil data biaya produksi: {str(e)}")
         return pd.DataFrame(columns=["id", "product_id", "component_name", "component_type", 
                                    "quantity", "unit", "unit_cost", "total_cost", "notes"])
+
+# --- DEBUG FUNCTIONS ---
+def debug_google_sheets_connection():
+    """Debug function to check Google Sheets connection"""
+    st.sidebar.header("🔍 Debug Google Sheets")
+    
+    # Test credentials
+    creds_data = get_google_creds()
+    if creds_data:
+        st.sidebar.success("✅ Credentials ditemukan")
+        st.sidebar.write("Project ID:", creds_data.get("project_id", "Tidak ditemukan"))
+        st.sidebar.write("Client Email:", creds_data.get("client_email", "Tidak ditemukan"))
+    else:
+        st.sidebar.error("❌ Tidak ada credentials")
+        return False
+    
+    # Test authentication
+    try:
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_data, CREDS_SCOPES)
+        client = gspread.authorize(creds)
+        st.sidebar.success("✅ Autentikasi berhasil")
+    except Exception as e:
+        st.sidebar.error(f"❌ Gagal autentikasi: {str(e)}")
+        return False
+    
+    # Test spreadsheet access
+    try:
+        spreadsheet = client.open("BatikGalleryData")
+        st.sidebar.success("✅ Spreadsheet ditemukan")
+        
+        # List all worksheets
+        worksheets = spreadsheet.worksheets()
+        st.sidebar.write(f"📋 Worksheets ditemukan: {len(worksheets)}")
+        for ws in worksheets:
+            st.sidebar.write(f"- {ws.title} ({ws.row_count} rows)")
+            
+        return True
+        
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.sidebar.error("❌ Spreadsheet 'BatikGalleryData' tidak ditemukan")
+        st.sidebar.info("ℹ️ Pastikan:")
+        st.sidebar.info("1. Spreadsheet sudah dibuat")
+        st.sidebar.info("2. Nama tepat 'BatikGalleryData'")
+        st.sidebar.info("3. Sudah di-share dengan service account")
+        return False
+    except Exception as e:
+        st.sidebar.error(f"❌ Error akses spreadsheet: {str(e)}")
+        return False
+
+# Panggil di sidebar
+if st.sidebar.button("🐛 Debug Connection"):
+    debug_google_sheets_connection()
 
 def add_record(sheet_name, record_data):
     """Generic function to add a record to any sheet"""
@@ -3217,6 +3437,14 @@ def main():
         st.session_state["is_admin"] = False
     if "language" not in st.session_state:
         st.session_state["language"] = "Indonesia"
+    
+    if st.sidebar.button("🐛 Debug Connection", help="Test koneksi Google Sheets"):
+        debug_google_sheets_connection()
+
+    if st.sidebar.button("🔄 Clear Cache", help="Bersihkan cache dan refresh"):
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        st.rerun()
     
     # Apply premium styling
     apply_professional_style()
