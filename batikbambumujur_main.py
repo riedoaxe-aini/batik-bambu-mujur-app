@@ -1494,11 +1494,11 @@ def display_header(language):
         try:
             logo_path = Path(__file__).parent / "static/logo_batik.png"
             if os.path.exists(logo_path):
-                st.image(logo_path, width=120, width='stretch')
+                st.image(logo_path, width=120)
             else:
-                st.image(DEFAULT_IMAGE, width=120, caption="Logo", width='stretch')
+                st.image(DEFAULT_IMAGE, width=120, caption="Logo")
         except:
-            st.image(DEFAULT_IMAGE, width=120, caption="Logo", width='stretch')
+            st.image(DEFAULT_IMAGE, width=120, caption="Logo")
     with col2:
         st.markdown(f"""
         <h1 style="margin-bottom: 0; color: #000000;">{LANGUAGES[language]["title"]}</h1>
@@ -3202,11 +3202,11 @@ def main():
         try:
             logo_path = Path(__file__).parent / "static/logo_batik.png"
             if os.path.exists(logo_path):
-                st.image(logo_path, width=120, width='stretch')
+                st.image(logo_path, width=120)
             else:
-                st.image(DEFAULT_IMAGE, width=120, caption="Logo", width='stretch')
+                st.image(DEFAULT_IMAGE, width=120, caption="Logo")
         except:
-            st.image(DEFAULT_IMAGE, width=120, caption="Logo", width='stretch')
+            st.image(DEFAULT_IMAGE, width=120, caption="Logo")
         
         st.markdown("---")
         
