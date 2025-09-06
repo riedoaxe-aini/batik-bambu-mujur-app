@@ -363,59 +363,82 @@ def get_google_creds():
     try:
         # Priority 1: Streamlit Cloud secrets
         if hasattr(st, "secrets"):
-            if "gcp" in st.secrets:
-                return dict(st.secrets["gcp"])
-            elif "gcp_service_account" in st.secrets:
-                return dict(st.secrets["gcp_service_account"])
+            # Check for different possible secret structures
+            if "gcp_service_account" in st.secrets:
+                creds_data = dict(st.secrets["gcp_service_account"])
+                # Ensure private key is properly formatted
+                if 'private_key' in creds_data:
+                    creds_data['private_key'] = creds_data['private_key'].replace('\\n', '\n')
+                return creds_data
+            elif "gcp" in st.secrets:
+                creds_data = dict(st.secrets["gcp"])
+                if 'private_key' in creds_data:
+                    creds_data['private_key'] = creds_data['private_key'].replace('\\n', '\n')
+                return creds_data
         
         # Priority 2: Local secrets.toml for development
-        secrets_path = Path(__file__).parent / ".streamlit/secrets.toml"
-        if secrets_path.exists():
-            import toml
-            secrets = toml.load(secrets_path)
-            if "gcp" in secrets:
-                return secrets["gcp"]
-            elif "gcp_service_account" in secrets:
-                return secrets["gcp_service_account"]
+        try:
+            secrets_path = Path(__file__).parent / ".streamlit/secrets.toml"
+            if secrets_path.exists():
+                import toml
+                secrets = toml.load(secrets_path)
+                if "gcp_service_account" in secrets:
+                    creds_data = secrets["gcp_service_account"]
+                    if 'private_key' in creds_data:
+                        creds_data['private_key'] = creds_data['private_key'].replace('\\n', '\n')
+                    return creds_data
+                elif "gcp" in secrets:
+                    creds_data = secrets["gcp"]
+                    if 'private_key' in creds_data:
+                        creds_data['private_key'] = creds_data['private_key'].replace('\\n', '\n')
+                    return creds_data
+        except:
+            pass
         
-        # Priority 3: Environment variables
-        env_creds = {
-            "type": os.getenv("GOOGLE_TYPE"),
-            "project_id": os.getenv("GOOGLE_PROJECT_ID"),
-            "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
-            "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
-            "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
-            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-            "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
-            "token_uri": os.getenv("GOOGLE_TOKEN_URI"),
-            "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_PROvider_X509_CERT_URL"),
-            "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL")
-        }
+        # Priority 3: Environment variables (for backward compatibility)
+        env_creds = {}
+        if os.getenv("GOOGLE_PRIVATE_KEY"):
+            env_creds = {
+                "type": os.getenv("GOOGLE_TYPE", "service_account"),
+                "project_id": os.getenv("GOOGLE_PROJECT_ID", "batikgallery-api"),
+                "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID", "0d6bbde112af4677618c5e06ee043013c7a8c68c"),
+                "private_key": os.getenv("GOOGLE_PRIVATE_KEY", "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC2R6cd6Pizl+G/\nACrcwN4KCI3DaFdwV94/qacLN9FkDR/Q8mJBt5D4nY/KmerU0su3Xz4CfDdgKAQE\nThkBJ9Ppt1qJ0DK9BpH7QLQOWjNAlbP6vNd8DNXVKq4Y7jn1gH/+G3TRtVP4WI5c\nwjKGIURMBF6xv/BegSTIXlNBW5L1lpvfpycdUO4ERYPHHyuq5Mzx4Gc+DFg/P/NZ\nnXXs6KZJ7NlfFW200+VgirVgStNlOlw9lE4d0J3ym0+rLHPD/209s29EW6SZFKlQ\nuSSsvnJ1eaqhtwHQdDxU2WWLtO9n/k+3rN4yd74wvPFQaUFLZFpRs2O3DZU66ZLY\nYT/1vRh5AgMBAAECggEAAxMwXhmEctIB0Q0wYsZlk/BTAHi//7lQUX95mTZrapP0\nYwT6mxIPQeAjJdiHJzH0TGTnowkYjXrawxBmyHDr/UDrA165VYokaANgs+7+dzQG\nKtA/3lm3Xb/wJDYYmjU0BdYWvNbqrdzWSx4C+sEi6aupxdvdMuruhX2nlHdkAkX/\nhx9hMhG4560MpDtYRbvgtp1uJjUTvi5MPHFc2RVPN8075cPvfjsAsSZCjf60H887\nfobVv+Sezl3CjO/7Wwi0JG7faceoUH7Tf/xTuENrpj4y1nudXerzOq/rvQCTUzwD\nBWeVTniL7gUGHLN0X3IMKA+VVcxTy43WtgO8BPzMgQKBgQDy2t0LB4cLl2PpVnEC\nvMnJEIs4umHrHZA7/cxMVWhvqPFt3recFsY8o711dLmuZfu+bmwFIGE5R0iLJz5L\nHFwGswX4Yoi+eerLQ++vGMJAVPh6ycLnKVcXu7HpKPmgiTGTBIiIt2LIIauS68XM\n74CX2+9RBaNUhhIIj0cuJrNyEQKBgQDAJW1QpK0+bPU+tmoZMwIAwYKnb8QKh2VB\n9FbEqcHWxcs6HURJuP9SGdTkseIYRmok/lnwbwrvaBMTi6WU0fdIHDj+uDoVjhQi\nqq5WHYdyR4HUa5SbLK4xv5+p0jw1Rycd0rmWiPngMdhGziESgC3y/sYqH78Hmyh0\n6tJ6b77X6QKBgQCy7ep6m9s2AR7N5rBxEeOiTpwk+b33WtrQOJhzjWHbEyB+kN+7\nE1SPjRykE5JTGjS3A+h2hnrblteuHwXYlVaAYRp+/So/HNiPVsibu6QzfedtoIYH\nhv/yLopQfa4eR7bM2UQ3ZtZTGeut3iTob3XRbWwPyBWkyvsyb05EhKMl4QKBgCuK\nj6n9lzCVOkHazlIlh+ep8jSFFDSal+yJNPxdx4omyjXCGg5muJzfM6obUTPVCQqX\nBMSCNUUpHWGJfJ0rs1CI7LV0A92Mk62DZfwntuDDqXz8X/GF/3dQiBrQhEpCdG/C\np8GgCpeuU+c/oKjzmPX+m+NBzGUp2NIdwFJ0bhe5AoGAEErJanMZYE9kM2isH6vD\nyd+RisgVIo48919XLxl/ZBP1eqsWRxJjzb/1R1/ptL/n4Tu7kNXjT0DVVz5WyDHF\nepG5fQZXQFJYvyeEtEfYxAXq3ySQWlpR0kTpklxtmSY8a5fi9VWIuxivjAPOdCCY\nmRL/J4uCMBV5dD4Ng82jdEk=\n-----END PRIVATE KEY-----").replace('\\n', '\n'),
+                "client_email": os.getenv("GOOGLE_CLIENT_EMAIL", "batik-app@batikgallery-api.iam.gserviceaccount.com"),
+                "client_id": os.getenv("GOOGLE_CLIENT_ID", "107401863169189726735"),
+                "auth_uri": os.getenv("GOOGLE_AUTH_URI", "https://accounts.google.com/o/oauth2/auth"),
+                "token_uri": os.getenv("GOOGLE_TOKEN_URI", "https://oauth2.googleapis.com/token"),
+                "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_PROVIDER_CERT_URL", "https://www.googleapis.com/oauth2/v1/cert"),
+                "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_CERT_URL", "https://www.googleapis.com/robot/v1/metadata/x509/batik-app%40batikgallery-api.iam.gserviceaccount.com")
+            }
+            
+            if all(env_creds.values()):
+                return env_creds
         
-        if all(env_creds.values()):
-            return env_creds
-        
-        st.error("""
-        🔐 No Google credentials found. Please configure one of:
-        1. Streamlit Cloud secrets (preferred)
-        2. .streamlit/secrets.toml with [gcp] section
-        3. Environment variables
+        # If no credentials found, return None but don't stop the app
+        st.warning("""
+        🔐 Google Sheets credentials not found. 
+        Some admin features will be disabled.
         """)
-        st.stop()
+        return None
         
     except Exception as e:
-        st.error(f"❌ Failed to load credentials: {str(e)}")
-        st.stop()
+        st.error(f"❌ Error loading credentials: {str(e)}")
+        return None
 
 # --- GOOGLE SHEETS CONNECTION ---
 @st.cache_resource(ttl=3600)
 def get_google_sheet(sheet_name="products"):
     """Establish connection to Google Sheets with retry logic"""
+    # If no credentials, return None to allow app to run in limited mode
+    creds_data = get_google_creds()
+    if not creds_data:
+        return None
+        
     max_retries = 3
     for attempt in range(max_retries):
         try:
             creds = ServiceAccountCredentials.from_json_keyfile_dict(
-                get_google_creds(), 
+                creds_data, 
                 CREDS_SCOPES
             )
             client = gspread.authorize(creds)
@@ -460,11 +483,12 @@ def get_google_sheet(sheet_name="products"):
         except gspread.exceptions.APIError as e:
             if attempt == max_retries - 1:
                 st.error(f"❌ Failed to connect to Google Sheets after {max_retries} attempts: {str(e)}")
-                st.stop()
+                return None
+            time.sleep(2)  # Wait before retrying
             continue
         except Exception as e:
             st.error(f"❌ Unexpected error connecting to Google Sheets: {str(e)}")
-            st.stop()
+            return None
 
 # --- IMAGE HANDLING ---
 def generate_unique_filename(original_name):
