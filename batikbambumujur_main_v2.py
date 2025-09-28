@@ -24,6 +24,7 @@ import numpy as np
 import io
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+import requests
 
 # Configure page with better defaults
 st.set_page_config(
@@ -47,7 +48,7 @@ AWARDS_DIR = "awards"
 INVENTORY_DIR = "inventory"
 CREDS_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
+    "https://www.googleapis.com/auth/drive.file"  # Reduced scope for better security
 ]
 
 # --- LANGUAGE SETTINGS ---
@@ -400,7 +401,7 @@ def get_google_creds():
                 "type": os.getenv("GOOGLE_TYPE", "service_account"),
                 "project_id": os.getenv("GOOGLE_PROJECT_ID", "batikgallery-api"),
                 "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID", "0d6bbde112af4677618c5e06ee043013c7a8c68c"),
-                "private_key": os.getenv("GOOGLE_PRIVATE_KEY", "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC2R6cd6Pizl+G/\nACrcwN4KCI3DaFdwV94/qacLN9FkDR/Q8mJBt5D4nY/KmerU0su3Xz4CfDdgKAQE\nThkBJ9Ppt1qJ0DK9BpH7QLQOWjNAlbP6vNd8DNXVKq4Y7jn1gH/+G3TRtVP4WI5c\nwjKGIURMBF6xv/BegSTIXlNBW5L1lpvfpycdUO4ERYPHHyuq5Mzx4Gc+DFg/P/NZ\nnXXs6KZJ7NlfFW200+VgirVgStNlOlw9lE4d0J3ym0+rLHPD/209s29EW6SZFKlQ\nuSSsvnJ1eaqhtwHQdDxU2WWLtO9n/k+3rN4yd74wvPFQaUFLZFpRs2O3DZU66ZLY\nYT/1vRh5AgMBAAECggEAAxMwXhmEctIB0Q0wYsZlk/BTAHi//7lQUX95mTZrapP0\nYwT6mxIPQeAjJdiHJzH0TGTnowkYjXrawxBmyHDr/UDrA165VYokaANgs+7+dzQG\nKtA/3lm3Xb/wJDYYmjU0BdYWvNbqrdzWSx4C+sEi6aupxdvdMuruhX2nlHdkAkX/\nhx9hMhG4560MpDtYRbvgtp1uJjUTvi5MPHFc2RVPN8075cPvfjsAsSZCjf60H887\nfobVv+Sezl3CjO/7Wwi0JG7faceoUH7Tf/xTuENrpj4y1nudXerzOq/rvQCTUzwD\nBWeVTniL7gUGHLN0X3IMKA+VVcxTy43WtgO8BPzMgQKBgQDy2t0LB4cLl2PpVnEC\nvMnJEIs4umHrHZA7/cxMVWhvqPFt3recFsY8o711dLmuZfu+bmwFIGE5R0iLJz5L\nHFwGswX4Yoi+eerLQ++vGMJAVPh6ycLnKVcXu7HpKPmgiTGTBIiIt2LIIauS68XM\n74CX2+9RBaNUhhIIj0cuJrNyEQKBgQDAJW1QpK0+bPU+tmoZMwIAwYKnb8QKh2VB\n9FbEqcHWxcs6HURJuP9SGdTkseIYRmok/lnwbwrvaBMTi6WU0fdIHDj+uDoVjhQi\nqq5WHYdyR4HUa5SbLK4xv5+p0jw1Rycd0rmWiPngMdhGziESgC3y/sYqH78Hmyh0\n6tJ6b77X6QKBgQCy7ep6m9s2AR7N5rBxEeOiTpwk+b33WtrQOJhzjWHbEyB+kN+7\nE1SPjRykE5JTGjS3A+h2hnrblteuHwXYlVaAYRp+/So/HNiPVsibu6QzfedtoIYH\nhv/yLopQfa4eR7bM2UQ3ZtZTGeut3iTob3XRbWwPyBWkyvsyb05EhKMl4QKBgCuK\nj6n9lzCVOkHazlIlh+ep8jSFFDSal+yJNPxdx4omyjXCGg5muJzfM6obUTPVCQqX\nBMSCNUUpHWGJfJ0rs1CI7LV0A92Mk62DZfwntuDDqXz8X/GF/3dQiBrQhEpCdG/C\np8GgCpeuU+c/oKjzmPX+m+NBzGUp2NIdwFJ0bhe5AoGAEErJanMZYE9kM2isH6vD\nyd+RisgVIo48919XLxl/ZBP1eqsWRxJjzb/1R1/ptL/n4Tu7kNXjT0DVVz5WyDHF\nepG5fQZXQFJYvyeEtEfYxAXq3ySQWlpR0kTpklxtmSY8a5fi9VWIuxivjAPOdCCY\nmRL/J4uCMBV5dD4Ng82jdEk=\n-----END PRIVATE KEY-----").replace('\\n', '\n'),
+                "private_key": os.getenv("GOOGLE_PRIVATE_KEY", "").replace('\\n', '\n'),
                 "client_email": os.getenv("GOOGLE_CLIENT_EMAIL", "batik-app@batikgallery-api.iam.gserviceaccount.com"),
                 "client_id": os.getenv("GOOGLE_CLIENT_ID", "107401863169189726735"),
                 "auth_uri": os.getenv("GOOGLE_AUTH_URI", "https://accounts.google.com/o/oauth2/auth"),
@@ -545,7 +546,7 @@ def get_image_from_drive(image_path):
         response = drive_service.files().list(
             q=f"name='{filename}' and '{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed=false",
             spaces='drive',
-            fields='files(id, name)'
+            fields='files(id, name, webContentLink)'
         ).execute()
         
         files = response.get('files', [])
@@ -558,6 +559,42 @@ def get_image_from_drive(image_path):
             
     except Exception as e:
         st.error(f"❌ Error accessing image from Drive: {str(e)}")
+        return DEFAULT_IMAGE
+
+# --- SIMPLE IMAGE HANDLING (Fallback) ---
+def save_image_simple(uploaded_file, directory=IMAGE_DIR):
+    """Save uploaded image locally as fallback"""
+    try:
+        # Create directory if it doesn't exist
+        os.makedirs(directory, exist_ok=True)
+        
+        # Generate unique filename
+        unique_filename = generate_unique_filename(uploaded_file.name)
+        file_path = os.path.join(directory, unique_filename)
+        
+        # Save file
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+        return file_path
+        
+    except Exception as e:
+        st.error(f"❌ Failed to save image locally: {str(e)}")
+        return DEFAULT_IMAGE
+
+def get_image_simple(image_path):
+    """Get image from local storage or return default"""
+    if not image_path or image_path == DEFAULT_IMAGE:
+        return DEFAULT_IMAGE
+    
+    # If it's already a URL, return it
+    if image_path.startswith('http'):
+        return image_path
+    
+    # If it's a local path, check if file exists
+    if os.path.exists(image_path):
+        return image_path
+    else:
         return DEFAULT_IMAGE
 
 # --- GOOGLE SHEETS CONNECTION ---
@@ -686,49 +723,63 @@ def generate_unique_filename(original_name):
     return f"{timestamp}_{unique_id}.{ext}"
 
 def save_image(uploaded_file, directory=IMAGE_DIR):
-    """Save uploaded image to Google Drive and return public URL"""
+    """Save uploaded image with fallback to local storage"""
     try:
-        # Save file temporarily
-        temp_dir = Path(__file__).parent / "temp"
-        os.makedirs(temp_dir, exist_ok=True)
+        # First try Google Drive
+        drive_service = get_drive_service()
+        if drive_service:
+            # Save file temporarily
+            temp_dir = Path(__file__).parent / "temp"
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            unique_filename = generate_unique_filename(uploaded_file.name)
+            temp_path = temp_dir / unique_filename
+            
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            
+            # Upload to Google Drive
+            drive_url = upload_to_drive(str(temp_path), directory)
+            
+            # Clean up temp file
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+            
+            if drive_url:
+                return drive_url
         
-        unique_filename = generate_unique_filename(uploaded_file.name)
-        temp_path = temp_dir / unique_filename
-        
-        with open(temp_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        
-        # Upload to Google Drive
-        drive_url = upload_to_drive(str(temp_path), directory)
-        
-        # Clean up temp file
-        try:
-            os.remove(temp_path)
-        except:
-            pass
-        
-        return drive_url if drive_url else DEFAULT_IMAGE
+        # Fallback to local storage
+        return save_image_simple(uploaded_file, directory)
         
     except Exception as e:
         st.error(f"❌ Failed to save image: {str(e)}")
-        return DEFAULT_IMAGE
+        # Final fallback
+        return save_image_simple(uploaded_file, directory)
 
 def display_image(image_path, width=300):
-    """Safe function to display image from Google Drive"""
+    """Safe function to display image from various sources"""
     try:
         if not image_path or image_path == DEFAULT_IMAGE:
             st.image(DEFAULT_IMAGE, width=width)
             return False
         
-        # Get image from Google Drive
+        # Try to get image from Google Drive first
         drive_url = get_image_from_drive(image_path)
         
-        if drive_url == DEFAULT_IMAGE:
-            st.image(DEFAULT_IMAGE, width=width)
-            return False
-        
-        st.image(drive_url, width=width)
-        return True
+        if drive_url != DEFAULT_IMAGE:
+            st.image(drive_url, width=width)
+            return True
+        else:
+            # Fallback to local image
+            local_path = get_image_simple(image_path)
+            if local_path != DEFAULT_IMAGE:
+                st.image(local_path, width=width)
+                return True
+            else:
+                st.image(DEFAULT_IMAGE, width=width)
+                return False
             
     except Exception as img_error:
         st.error(f"Error gambar: {str(img_error)}")
@@ -841,6 +892,9 @@ def get_fallback_data(sheet_name):
 def get_all_activities():
     try:
         sheet = get_google_sheet("activities")
+        if sheet is None:
+            return get_fallback_data("activities")
+            
         records = sheet.get_all_records()
         
         if not records:
@@ -850,12 +904,15 @@ def get_all_activities():
         
     except Exception as e:
         st.error(f"Gagal mengambil data kegiatan: {str(e)}")
-        return pd.DataFrame(columns=["id", "title", "date", "description", "image_path"])
+        return get_fallback_data("activities")
 
 @st.cache_data(ttl=600)
 def get_all_awards():
     try:
         sheet = get_google_sheet("awards")
+        if sheet is None:
+            return get_fallback_data("awards")
+            
         records = sheet.get_all_records()
         
         if not records:
@@ -865,12 +922,15 @@ def get_all_awards():
         
     except Exception as e:
         st.error(f"Gagal mengambil data penghargaan: {str(e)}")
-        return pd.DataFrame(columns=["id", "title", "organization", "year", "image_path"])
+        return get_fallback_data("awards")
 
 @st.cache_data(ttl=600)
 def get_all_inventory():
     try:
         sheet = get_google_sheet("inventory")
+        if sheet is None:
+            return get_fallback_data("inventory")
+            
         records = sheet.get_all_records()
         
         if not records:
@@ -883,14 +943,15 @@ def get_all_inventory():
         
     except Exception as e:
         st.error(f"Gagal mengambil data inventaris: {str(e)}")
-        return pd.DataFrame(columns=["id", "item_name", "item_type", "supplier", "current_stock", 
-                                   "minimum_stock", "unit", "price_per_unit", "total_value", 
-                                   "notes", "last_updated"])
+        return get_fallback_data("inventory")
 
 @st.cache_data(ttl=600)
 def get_inventory_history():
     try:
         sheet = get_google_sheet("inventory_history")
+        if sheet is None:
+            return get_fallback_data("inventory_history")
+            
         records = sheet.get_all_records()
         
         if not records:
@@ -902,13 +963,15 @@ def get_inventory_history():
         
     except Exception as e:
         st.error(f"Gagal mengambil riwayat inventaris: {str(e)}")
-        return pd.DataFrame(columns=["id", "item_id", "transaction_date", "transaction_type", 
-                                   "amount", "notes", "unit_price", "total_value"])
+        return get_fallback_data("inventory_history")
 
 @st.cache_data(ttl=600)
 def get_financial_transactions():
     try:
         sheet = get_google_sheet("financial_transactions")
+        if sheet is None:
+            return get_fallback_data("financial_transactions")
+            
         records = sheet.get_all_records()
         
         if not records:
@@ -920,13 +983,15 @@ def get_financial_transactions():
         
     except Exception as e:
         st.error(f"Gagal mengambil transaksi keuangan: {str(e)}")
-        return pd.DataFrame(columns=["id", "transaction_date", "transaction_type", "category", 
-                                   "description", "value", "payment_method", "reference", "notes"])
+        return get_fallback_data("financial_transactions")
 
 @st.cache_data(ttl=600)
 def get_production_costs():
     try:
         sheet = get_google_sheet("production_costs")
+        if sheet is None:
+            return get_fallback_data("production_costs")
+            
         records = sheet.get_all_records()
         
         if not records:
@@ -938,8 +1003,7 @@ def get_production_costs():
         
     except Exception as e:
         st.error(f"Gagal mengambil data biaya produksi: {str(e)}")
-        return pd.DataFrame(columns=["id", "product_id", "component_name", "component_type", 
-                                   "quantity", "unit", "unit_cost", "total_cost", "notes"])
+        return get_fallback_data("production_costs")
 
 # --- DEBUG FUNCTIONS ---
 def debug_google_sheets_connection():
@@ -1020,6 +1084,10 @@ def add_record(sheet_name, record_data):
     """Generic function to add a record to any sheet"""
     try:
         sheet = get_google_sheet(sheet_name)
+        if sheet is None:
+            st.error("Tidak dapat terhubung ke Google Sheets")
+            return False
+            
         headers = sheet.row_values(1)
         row_data = [record_data.get(col, "") for col in headers]
         sheet.append_row(row_data)
@@ -1033,6 +1101,10 @@ def update_record(sheet_name, record_id, updated_data):
     """Generic function to update a record in any sheet"""
     try:
         sheet = get_google_sheet(sheet_name)
+        if sheet is None:
+            st.error("Tidak dapat terhubung ke Google Sheets")
+            return False
+            
         records = sheet.get_all_records()
         headers = sheet.row_values(1)
         
@@ -1057,6 +1129,10 @@ def delete_record(sheet_name, record_id):
     """Generic function to delete a record from any sheet"""
     try:
         sheet = get_google_sheet(sheet_name)
+        if sheet is None:
+            st.error("Tidak dapat terhubung ke Google Sheets")
+            return False
+            
         records = sheet.get_all_records()
         
         found = False
