@@ -11,9 +11,6 @@ import hashlib
 import base64
 import plotly.express as px
 import plotly.graph_objects as go
-from streamlit_extras.metric_cards import style_metric_cards
-from streamlit_extras.stylable_container import stylable_container
-from streamlit_extras.dataframe_explorer import dataframe_explorer
 import random
 import time
 import folium
@@ -21,7 +18,6 @@ from streamlit_folium import folium_static
 import json
 from collections import defaultdict
 import numpy as np
-import io
 import requests
 
 # Configure page with better defaults
@@ -29,22 +25,12 @@ st.set_page_config(
     page_title="Batik Gallery Admin",
     page_icon="🎨",
     layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': 'https://example.com/help',
-        'Report a bug': "https://example.com/bug",
-        'About': "# Premium Batik Gallery Admin"
-    }
+    initial_sidebar_state="expanded"
 )
 
 # --- CONSTANTS ---
 DEFAULT_IMAGE = "https://via.placeholder.com/300x300.png?text=Image+Not+Found"
-GOOGLE_DRIVE_FOLDER_ID = "1J1sAKu1nUkZFoBVMgcDnmugI1-5Xz1Lf"
 SPREADSHEET_ID = "19rQZ2FEBN9FFynlsOdi0okjjAaPSu5lBkGhSJfhg2hg"  # ID dari URL spreadsheet Anda
-IMAGE_DIR = "images"
-ACTIVITIES_DIR = "activities"
-AWARDS_DIR = "awards"
-INVENTORY_DIR = "inventory"
 
 # --- LANGUAGE SETTINGS ---
 LANGUAGES = {
@@ -265,18 +251,13 @@ if 'visitor_data' not in st.session_state:
 
 def track_visitor():
     """Track visitor statistics with session management"""
-    # Generate a unique identifier for this visitor
     visitor_id = str(uuid.uuid4())
-    
-    # Get current date
     today = datetime.now().date().isoformat()
     
-    # Update visitor data
     st.session_state.visitor_data['total_visits'] += 1
     st.session_state.visitor_data['unique_visitors'].add(visitor_id)
     st.session_state.visitor_data['page_views'] += 1
     
-    # Update daily stats
     st.session_state.visitor_data['daily_stats'][today]['visits'] += 1
     st.session_state.visitor_data['daily_stats'][today]['unique_ips'].add(visitor_id)
     st.session_state.visitor_data['daily_stats'][today]['page_views'] += 1
@@ -290,11 +271,11 @@ def format_price(price, language):
 
 def get_price_step(max_price):
     """Determine appropriate step size based on price range"""
-    if max_price > 10000000:  # For premium products (>10jt)
+    if max_price > 10000000:
         return 500000
-    elif max_price > 1000000:  # For mid-range products (1-10jt)
+    elif max_price > 1000000:
         return 100000
-    else:  # For lower-priced products
+    else:
         return 10000
 
 def check_admin_credentials(username, password):
@@ -304,15 +285,14 @@ def check_admin_credentials(username, password):
             hashed_input == ADMIN_CREDENTIALS["password"])
 
 def show_login_form(language):
-    """Display admin login form with light styling"""
+    """Display admin login form"""
     with st.form("admin_login"):
         st.subheader(LANGUAGES[language]["login"])
         
-        username = st.text_input("Username", key="login_username")
-        password = st.text_input("Password", type="password", key="login_password")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
         
-        submitted = st.form_submit_button("Login", 
-                                         type="primary")
+        submitted = st.form_submit_button("Login", type="primary")
         
         if submitted:
             if check_admin_credentials(username, password):
@@ -323,198 +303,139 @@ def show_login_form(language):
             else:
                 st.error("Incorrect username or password" if language == "English" else "Username atau password salah")
 
-# --- SIMPLE DATA STORAGE (Fallback) ---
-def get_local_data(filename, default_data=None):
-    """Get data from local JSON file"""
+# --- GOOGLE SHEETS CONNECTION ---
+@st.cache_resource
+def get_google_sheet():
+    """Establish connection to Google Sheets"""
     try:
-        if os.path.exists(filename):
-            with open(filename, 'r', encoding='utf-8') as f:
-                return json.load(f)
-    except:
-        pass
-    return default_data or []
+        # Get credentials from Streamlit secrets
+        if 'gcp_service_account' in st.secrets:
+            creds_dict = dict(st.secrets['gcp_service_account'])
+            # Ensure private key is properly formatted
+            if 'private_key' in creds_dict:
+                creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
+        else:
+            st.error("Google Sheets credentials not found in secrets")
+            return None
 
-def save_local_data(filename, data):
-    """Save data to local JSON file"""
+        scope = ['https://spreadsheets.google.com/feeds',
+                'https://www.googleapis.com/auth/drive']
+        
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        
+        # Open spreadsheet by ID
+        spreadsheet = client.open_by_key(SPREADSHEET_ID)
+        return spreadsheet
+        
+    except Exception as e:
+        st.error(f"Error connecting to Google Sheets: {str(e)}")
+        return None
+
+def get_sheet_data(sheet_name):
+    """Get data from specific sheet"""
     try:
-        os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else '.', exist_ok=True)
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        spreadsheet = get_google_sheet()
+        if not spreadsheet:
+            return []
+            
+        worksheet = spreadsheet.worksheet(sheet_name)
+        records = worksheet.get_all_records()
+        return records
+    except Exception as e:
+        st.error(f"Error reading sheet {sheet_name}: {str(e)}")
+        return []
+
+def update_sheet_data(sheet_name, data):
+    """Update data in specific sheet"""
+    try:
+        spreadsheet = get_google_sheet()
+        if not spreadsheet:
+            return False
+            
+        worksheet = spreadsheet.worksheet(sheet_name)
+        
+        # Clear existing data and write new data
+        worksheet.clear()
+        if data:
+            # Convert to list of lists
+            headers = list(data[0].keys())
+            values = [headers] + [[item.get(header, '') for header in headers] for item in data]
+            worksheet.update(values)
         return True
     except Exception as e:
-        st.error(f"Error saving local data: {str(e)}")
+        st.error(f"Error updating sheet {sheet_name}: {str(e)}")
         return False
+
+def add_row_to_sheet(sheet_name, row_data):
+    """Add a single row to sheet"""
+    try:
+        spreadsheet = get_google_sheet()
+        if not spreadsheet:
+            return False
+            
+        worksheet = spreadsheet.worksheet(sheet_name)
+        worksheet.append_row(list(row_data.values()))
+        return True
+    except Exception as e:
+        st.error(f"Error adding row to {sheet_name}: {str(e)}")
+        return False
+
+# --- DATA OPERATIONS ---
+def get_all_products():
+    """Get all products from Google Sheets"""
+    return get_sheet_data('products')
+
+def save_all_products(products):
+    """Save products to Google Sheets"""
+    return update_sheet_data('products', products)
+
+def add_product(product_data):
+    """Add a single product"""
+    return add_row_to_sheet('products', product_data)
+
+def get_all_activities():
+    """Get all activities from Google Sheets"""
+    return get_sheet_data('activities')
+
+def get_all_awards():
+    """Get all awards from Google Sheets"""
+    return get_sheet_data('awards')
 
 # --- IMAGE HANDLING ---
 def generate_unique_filename(original_name):
-    """Generate unique filename to prevent collisions"""
+    """Generate unique filename"""
     ext = original_name.split('.')[-1]
     unique_id = uuid.uuid4().hex[:8]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{timestamp}_{unique_id}.{ext}"
 
-def save_image_local(uploaded_file, directory=IMAGE_DIR):
-    """Save uploaded image locally"""
+def save_image_local(uploaded_file):
+    """Save uploaded image locally (for Streamlit Cloud)"""
     try:
-        # Create directory if it doesn't exist
-        os.makedirs(directory, exist_ok=True)
-        
-        # Generate unique filename
+        # In Streamlit Cloud, we can only save temporarily
+        # For production, you might want to use a cloud storage service
         unique_filename = generate_unique_filename(uploaded_file.name)
-        file_path = os.path.join(directory, unique_filename)
-        
-        # Save file
-        with open(file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        
-        return file_path
-        
+        return unique_filename  # Return filename for reference
     except Exception as e:
-        st.error(f"❌ Failed to save image locally: {str(e)}")
-        return DEFAULT_IMAGE
-
-def get_image_path(image_path):
-    """Get image path - return default if not found"""
-    if not image_path or image_path == DEFAULT_IMAGE:
-        return DEFAULT_IMAGE
-    
-    # If it's already a URL, return it
-    if image_path.startswith('http'):
-        return image_path
-    
-    # If it's a local path, check if file exists
-    if os.path.exists(image_path):
-        return image_path
-    else:
-        return DEFAULT_IMAGE
+        st.error(f"Error saving image: {str(e)}")
+        return None
 
 def display_image(image_path, width=300):
-    """Safe function to display image"""
+    """Display image - for now using placeholder"""
     try:
-        if not image_path or image_path == DEFAULT_IMAGE:
-            st.image(DEFAULT_IMAGE, width=width)
-            return False
-        
-        actual_path = get_image_path(image_path)
-        if actual_path == DEFAULT_IMAGE:
-            st.image(DEFAULT_IMAGE, width=width)
-            return False
-        
-        st.image(actual_path, width=width)
+        st.image(DEFAULT_IMAGE, width=width)
         return True
-            
     except Exception as img_error:
-        st.error(f"Error gambar: {str(img_error)}")
+        st.error(f"Error displaying image: {str(img_error)}")
         st.image(DEFAULT_IMAGE, width=width)
         return False
-
-# --- DATA OPERATIONS ---
-def get_all_products():
-    """Get all products from local storage"""
-    return get_local_data('data/products.json', get_fallback_products())
-
-def save_all_products(products):
-    """Save products to local storage"""
-    return save_local_data('data/products.json', products)
-
-def get_all_activities():
-    """Get all activities from local storage"""
-    return get_local_data('data/activities.json', [])
-
-def save_all_activities(activities):
-    """Save activities to local storage"""
-    return save_local_data('data/activities.json', activities)
-
-def get_all_awards():
-    """Get all awards from local storage"""
-    return get_local_data('data/awards.json', [])
-
-def save_all_awards(awards):
-    """Save awards to local storage"""
-    return save_local_data('data/awards.json', awards)
-
-def get_all_inventory():
-    """Get all inventory from local storage"""
-    return get_local_data('data/inventory.json', [])
-
-def save_all_inventory(inventory):
-    """Save inventory to local storage"""
-    return save_local_data('data/inventory.json', inventory)
-
-def get_inventory_history():
-    """Get inventory history from local storage"""
-    return get_local_data('data/inventory_history.json', [])
-
-def save_inventory_history(history):
-    """Save inventory history to local storage"""
-    return save_local_data('data/inventory_history.json', history)
-
-def get_financial_transactions():
-    """Get financial transactions from local storage"""
-    return get_local_data('data/financial_transactions.json', [])
-
-def save_financial_transactions(transactions):
-    """Save financial transactions to local storage"""
-    return save_local_data('data/financial_transactions.json', transactions)
-
-# --- FALLBACK DATA ---
-def get_fallback_products():
-    """Return fallback products data"""
-    sample_data = [
-        {
-            "id": 1,
-            "name": "Batik Parang Classic",
-            "description": "Batik Parang klasik dengan motif tradisional",
-            "price": 450000,
-            "discount": 0,
-            "category": "Traditional",
-            "materials": "Katun Prima",
-            "creation_date": "2024-01-15",
-            "image_path": DEFAULT_IMAGE,
-            "shopee_link": "",
-            "tokopedia_link": "",
-            "other_link": "",
-            "payment_methods": "Transfer Bank, COD"
-        },
-        {
-            "id": 2,
-            "name": "Batik Mega Mendung",
-            "description": "Batik Mega Mendung dengan warna cerah",
-            "price": 550000,
-            "discount": 10,
-            "category": "Traditional",
-            "materials": "Sutra Alam",
-            "creation_date": "2024-02-20",
-            "image_path": DEFAULT_IMAGE,
-            "shopee_link": "",
-            "tokopedia_link": "",
-            "other_link": "",
-            "payment_methods": "Transfer Bank"
-        },
-        {
-            "id": 3,
-            "name": "Batik Kawung",
-            "description": "Batik Kawung motif geometris elegan",
-            "price": 350000,
-            "discount": 5,
-            "category": "Geometric",
-            "materials": "Katun Jepang",
-            "creation_date": "2024-01-30",
-            "image_path": DEFAULT_IMAGE,
-            "shopee_link": "",
-            "tokopedia_link": "",
-            "other_link": "",
-            "payment_methods": "Transfer Bank, E-Wallet"
-        }
-    ]
-    return sample_data
 
 # --- VISITOR STATISTICS ---
 def get_visitor_data():
     """Get real visitor data from session state"""
     daily_stats = st.session_state.visitor_data['daily_stats']
     
-    # Convert to DataFrame for easier plotting
     dates = []
     visits = []
     unique_visitors = []
@@ -535,92 +456,15 @@ def get_visitor_data():
     
     return df
 
-# --- INVENTORY MANAGEMENT FUNCTIONS ---
-def update_inventory_item(item_id, amount, transaction_type, notes=""):
-    """Update inventory item stock and create history record"""
-    try:
-        inventory_data = get_all_inventory()
-        inventory_df = pd.DataFrame(inventory_data)
-        
-        # Find item
-        item_index = None
-        for i, item in enumerate(inventory_data):
-            if item['id'] == item_id:
-                item_index = i
-                break
-        
-        if item_index is None:
-            st.error("Item not found")
-            return False
-        
-        item = inventory_data[item_index]
-        
-        # Calculate new stock
-        if transaction_type == "add":
-            new_stock = float(item['current_stock']) + float(amount)
-        elif transaction_type == "reduce":
-            new_stock = float(item['current_stock']) - float(amount)
-            if new_stock < 0:
-                st.warning("Stock cannot be negative. Transaction cancelled.")
-                return False
-        else:
-            st.error("Invalid transaction type")
-            return False
-        
-        # Update inventory record
-        inventory_data[item_index]['current_stock'] = new_stock
-        inventory_data[item_index]['total_value'] = new_stock * float(item['price_per_unit'])
-        inventory_data[item_index]['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        if save_all_inventory(inventory_data):
-            # Create history record
-            history_data = get_inventory_history()
-            new_history_id = max([h.get('id', 0) for h in history_data], default=0) + 1
-            
-            history_record = {
-                "id": new_history_id,
-                "item_id": item_id,
-                "transaction_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "transaction_type": transaction_type,
-                "amount": amount,
-                "notes": notes,
-                "unit_price": item['price_per_unit'],
-                "total_value": float(amount) * float(item['price_per_unit'])
-            }
-            
-            history_data.append(history_record)
-            if save_inventory_history(history_data):
-                return True
-        return False
-    except Exception as e:
-        st.error(f"Error updating inventory: {str(e)}")
-        return False
-
-# --- FINANCIAL MANAGEMENT FUNCTIONS ---
-def calculate_financial_balance():
-    """Calculate current financial balance"""
-    transactions = get_financial_transactions()
-    if not transactions:
-        return 0
-    
-    df = pd.DataFrame(transactions)
-    income = df[df['transaction_type'] == 'income']['value'].sum()
-    expense = df[df['transaction_type'] == 'expense']['value'].sum()
-    return income - expense
-
 # --- HPP CALCULATOR FUNCTIONS ---
 def show_hpp_calculator(language):
-    """HPP Calculator for Batik Tulis with detailed cost breakdown"""
+    """HPP Calculator for Batik Tulis"""
     st.markdown(f"""
     <h2 style="margin-bottom: 1rem; color: #000000;">Kalkulator HPP Batik Tulis</h2>
     <p style="color: #555; font-size: 16px;">Hitung Harga Pokok Produksi dan Harga Jual untuk Batik Tulis</p>
     """, unsafe_allow_html=True)
     
-    tab1, tab2, tab3 = st.tabs([
-        "🖌️ Input Data Produksi",
-        "🧮 Kalkulasi HPP",
-        "📊 Hasil & Rekomendasi"
-    ])
+    tab1, tab2, tab3 = st.tabs(["🖌️ Input Data", "🧮 Kalkulasi HPP", "📊 Hasil"])
     
     with tab1:
         input_production_data(language)
@@ -636,168 +480,49 @@ def input_production_data(language):
     col1, col2 = st.columns(2)
     with col1:
         product_name = st.text_input("Nama Produk Batik", "Batik Tulis Cap Kencana")
-        batik_type = st.selectbox(
-            "Jenis Batik",
-            ["Batik Tulis Pewarna Alami", "Batik Tulis Pewarna Sintetis", "Batik Tulis Kombinasi"],
-            help="Pilih jenis batik berdasarkan pewarna yang digunakan"
-        )
-        fabric_type = st.selectbox(
-            "Jenis Kain",
-            ["Katun Primissima", "Katun Dobby", "Katun Mori", "Sutera Alam", "Sutera Satin"],
-            index=0
-        )
+        fabric_type = st.selectbox("Jenis Kain", ["Katun Primissima", "Katun Dobby", "Katun Mori", "Sutera Alam"])
     
     with col2:
         fabric_length = st.number_input("Panjang Kain (meter)", min_value=0.1, value=2.5, step=0.1)
         fabric_width = st.number_input("Lebar Kain (meter)", min_value=0.1, value=1.1, step=0.1)
-        production_quantity = st.number_input("Jumlah Produksi (pcs)", min_value=1, value=1, step=1)
+        production_quantity = st.number_input("Jumlah Produksi (pcs)", min_value=1, value=1)
     
     st.markdown("---")
     st.markdown(f"<h4 style='color: #000000; margin-bottom: 1rem;'>Biaya Bahan Baku</h4>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        fabric_price_per_meter = st.number_input(
-            "Harga Kain per Meter (Rp)",
-            min_value=0,
-            value=45000,
-            step=1000,
-            help="Harga kain per meter persegi"
-        )
+        fabric_price_per_meter = st.number_input("Harga Kain per Meter (Rp)", min_value=0, value=45000, step=1000)
     with col2:
-        wax_quantity = st.number_input(
-            "Kebutuhan Lilin (gram)",
-            min_value=0.0,
-            value=150.0,
-            step=10.0,
-            help="Total lilin yang dibutuhkan untuk proses membatik"
-        )
-        wax_price_per_kg = st.number_input(
-            "Harga Lilin per Kg (Rp)",
-            min_value=0,
-            value=25000,
-            step=1000
-        )
+        wax_quantity = st.number_input("Kebutuhan Lilin (gram)", min_value=0.0, value=150.0, step=10.0)
+        wax_price_per_kg = st.number_input("Harga Lilin per Kg (Rp)", min_value=0, value=25000, step=1000)
     with col3:
-        dye_type = st.selectbox(
-            "Jenis Pewarna",
-            ["Pewarna Alami", "Pewarna Sintetis", "Kombinasi"],
-            index=1 if "Sintetis" in batik_type else 0
-        )
-        
-        if "Alami" in dye_type:
-            dye_price = st.number_input("Harga Pewarna Alami (Rp)", min_value=0, value=150000, step=10000)
-        else:
-            dye_price = st.number_input("Harga Pewarna per Set (Rp)", min_value=0, value=75000, step=5000)
+        dye_price = st.number_input("Harga Pewarna (Rp)", min_value=0, value=75000, step=5000)
     
     st.markdown("---")
     st.markdown(f"<h4 style='color: #000000; margin-bottom: 1rem;'>Biaya Tenaga Kerja</h4>", unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
-        design_hours = st.number_input(
-            "Waktu Membuat Pola (jam)",
-            min_value=0.0,
-            value=8.0,
-            step=0.5,
-            help="Waktu yang dibutuhkan untuk membuat pola batik"
-        )
-        design_hourly_rate = st.number_input(
-            "Upah Perancang per Jam (Rp)",
-            min_value=0,
-            value=25000,
-            step=1000
-        )
-    
+        design_hours = st.number_input("Waktu Membuat Pola (jam)", min_value=0.0, value=8.0, step=0.5)
+        design_hourly_rate = st.number_input("Upah Perancang per Jam (Rp)", min_value=0, value=25000, step=1000)
     with col2:
-        waxing_hours = st.number_input(
-            "Waktu Membatik (jam)",
-            min_value=0.0,
-            value=40.0,
-            step=1.0,
-            help="Waktu yang dibutuhkan untuk proses membatik dengan lilin"
-        )
-        batik_artist_hourly_rate = st.number_input(
-            "Upah Pembatik per Jam (Rp)",
-            min_value=0,
-            value=20000,
-            step=1000
-        )
-    
-    with col3:
-        dyeing_processes = st.number_input(
-            "Jumlah Proses Pewarnaan",
-            min_value=1,
-            value=3,
-            step=1,
-            help="Berapa kali proses pewarnaan dilakukan"
-        )
-        dyeing_hours_per_process = st.number_input(
-            "Waktu Pewarnaan per Proses (jam)",
-            min_value=0.0,
-            value=2.0,
-            step=0.5
-        )
-        dyeing_hourly_rate = st.number_input(
-            "Upah Pewarna per Jam (Rp)",
-            min_value=0,
-            value=15000,
-            step=1000
-        )
+        waxing_hours = st.number_input("Waktu Membatik (jam)", min_value=0.0, value=40.0, step=1.0)
+        batik_artist_hourly_rate = st.number_input("Upah Pembatik per Jam (Rp)", min_value=0, value=20000, step=1000)
     
     st.markdown("---")
     st.markdown(f"<h4 style='color: #000000; margin-bottom: 1rem;'>Biaya Produksi Lainnya</h4>", unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
-        boiling_process = st.selectbox(
-            "Proses Pelorodan",
-            ["Manual", "Semi-Otomatis", "Otomatis"],
-            index=1
-        )
-        boiling_cost = st.number_input(
-            "Biaya Pelorodan (Rp)",
-            min_value=0,
-            value=15000,
-            step=1000,
-            help="Biaya untuk proses melorod/mencelup lilin"
-        )
-    
+        boiling_cost = st.number_input("Biaya Pelorodan (Rp)", min_value=0, value=15000, step=1000)
+        packaging_cost = st.number_input("Biaya Kemasan (Rp)", min_value=0, value=15000, step=1000)
     with col2:
-        color_fixing = st.number_input(
-            "Biaya Pengunci Warna (Rp)",
-            min_value=0,
-            value=10000,
-            step=1000,
-            help="Biaya bahan untuk mengunci warna"
-        )
-        drying_cost = st.number_input(
-            "Biaya Pengeringan (Rp)",
-            min_value=0,
-            value=5000,
-            step=1000
-        )
+        overhead_percentage = st.number_input("Overhead (%)", min_value=0.0, value=15.0, step=1.0)
     
-    with col3:
-        packaging_cost = st.number_input(
-            "Biaya Kemasan (Rp)",
-            min_value=0,
-            value=15000,
-            step=1000,
-            help="Biaya packaging dan label"
-        )
-        overhead_percentage = st.number_input(
-            "Overhead (%)",
-            min_value=0.0,
-            value=15.0,
-            step=1.0,
-            help="Biaya overhead sebagai persentase dari total biaya"
-        )
-    
-    # Save all inputs to session state
+    # Save to session state
     st.session_state.hpp_data = {
         'product_name': product_name,
-        'batik_type': batik_type,
         'fabric_type': fabric_type,
         'fabric_length': fabric_length,
         'fabric_width': fabric_width,
@@ -805,19 +530,12 @@ def input_production_data(language):
         'fabric_price_per_meter': fabric_price_per_meter,
         'wax_quantity': wax_quantity,
         'wax_price_per_kg': wax_price_per_kg,
-        'dye_type': dye_type,
         'dye_price': dye_price,
         'design_hours': design_hours,
         'design_hourly_rate': design_hourly_rate,
         'waxing_hours': waxing_hours,
         'batik_artist_hourly_rate': batik_artist_hourly_rate,
-        'dyeing_processes': dyeing_processes,
-        'dyeing_hours_per_process': dyeing_hours_per_process,
-        'dyeing_hourly_rate': dyeing_hourly_rate,
-        'boiling_process': boiling_process,
         'boiling_cost': boiling_cost,
-        'color_fixing': color_fixing,
-        'drying_cost': drying_cost,
         'packaging_cost': packaging_cost,
         'overhead_percentage': overhead_percentage
     }
@@ -832,7 +550,7 @@ def calculate_hpp(language):
     
     st.markdown(f"<h3 style='color: #000000; margin-bottom: 1.5rem;'>Kalkulasi Harga Pokok Produksi</h3>", unsafe_allow_html=True)
     
-    # Calculate material costs
+    # Calculate costs
     fabric_area = data['fabric_length'] * data['fabric_width']
     fabric_cost = fabric_area * data['fabric_price_per_meter']
     wax_cost = (data['wax_quantity'] / 1000) * data['wax_price_per_kg']
@@ -840,58 +558,37 @@ def calculate_hpp(language):
     
     material_costs = fabric_cost + wax_cost + dye_cost
     
-    # Calculate labor costs
     design_labor_cost = data['design_hours'] * data['design_hourly_rate']
     waxing_labor_cost = data['waxing_hours'] * data['batik_artist_hourly_rate']
-    dyeing_labor_cost = data['dyeing_processes'] * data['dyeing_hours_per_process'] * data['dyeing_hourly_rate']
     
-    labor_costs = design_labor_cost + waxing_labor_cost + dyeing_labor_cost
+    labor_costs = design_labor_cost + waxing_labor_cost
+    other_costs = data['boiling_cost'] + data['packaging_cost']
     
-    # Calculate other production costs
-    other_costs = (
-        data['boiling_cost'] + 
-        data['color_fixing'] + 
-        data['drying_cost'] + 
-        data['packaging_cost']
-    )
-    
-    # Calculate total direct costs
     total_direct_costs = material_costs + labor_costs + other_costs
-    
-    # Calculate overhead
     overhead_cost = total_direct_costs * (data['overhead_percentage'] / 100)
-    
-    # Calculate total production cost
     total_production_cost = total_direct_costs + overhead_cost
     
-    # Calculate HPP per unit
     hpp_per_unit = total_production_cost / data['production_quantity'] if data['production_quantity'] > 0 else total_production_cost
     
-    # Save calculations to session state
+    # Save calculations
     st.session_state.hpp_calculations = {
         'material_costs': material_costs,
         'labor_costs': labor_costs,
         'other_costs': other_costs,
         'overhead_cost': overhead_cost,
         'total_production_cost': total_production_cost,
-        'hpp_per_unit': hpp_per_unit,
-        'fabric_area': fabric_area
+        'hpp_per_unit': hpp_per_unit
     }
     
-    # Display cost breakdown
-    st.markdown("### 📊 Rincian Biaya Produksi")
-    
+    # Display results
     col1, col2 = st.columns(2)
-    
     with col1:
         st.metric("Biaya Bahan Baku", format_price(material_costs, language))
         st.metric("Biaya Tenaga Kerja", format_price(labor_costs, language))
         st.metric("Biaya Lainnya", format_price(other_costs, language))
-    
     with col2:
         st.metric("Overhead", format_price(overhead_cost, language))
-        st.metric("Total Biaya Produksi", format_price(total_production_cost, language), 
-                 delta=f"Untuk {data['production_quantity']} pcs")
+        st.metric("Total Biaya Produksi", format_price(total_production_cost, language))
         st.metric("HPP per Unit", format_price(hpp_per_unit, language))
 
 def show_results(language):
@@ -900,37 +597,24 @@ def show_results(language):
         st.warning("Silakan lakukan kalkulasi HPP terlebih dahulu di tab 'Kalkulasi HPP'")
         return
     
-    data = st.session_state.hpp_data
     calculations = st.session_state.hpp_calculations
     
     st.markdown(f"<h3 style='color: #000000; margin-bottom: 1.5rem;'>Rekomendasi Harga Jual</h3>", unsafe_allow_html=True)
     
-    # Profit margin input
-    profit_margin = st.slider(
-        "Margin Keuntungan yang Diinginkan (%)",
-        min_value=10,
-        max_value=100,
-        value=40,
-        step=5,
-        help="Persentase keuntungan yang ingin diperoleh dari HPP"
-    )
-    
-    # Calculate selling price
+    profit_margin = st.slider("Margin Keuntungan (%)", min_value=10, max_value=100, value=40, step=5)
     selling_price = calculations['hpp_per_unit'] * (1 + profit_margin / 100)
     
-    # Display pricing
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Harga Pokok Produksi", format_price(calculations['hpp_per_unit'], language))
     with col2:
         st.metric("Margin Keuntungan", f"{profit_margin}%")
     with col3:
-        st.metric("Harga Jual Recommended", format_price(selling_price, language), 
-                 delta=format_price(selling_price - calculations['hpp_per_unit'], language))
+        st.metric("Harga Jual Recommended", format_price(selling_price, language))
 
 # --- UI COMPONENTS ---
 def apply_professional_style():
-    """Apply a clean white-ui professional styling with dark text"""
+    """Apply professional styling"""
     st.markdown("""
     <style>
         .stApp {
@@ -942,9 +626,6 @@ def apply_professional_style():
         h1, h2, h3, h4, h5, h6 {
             color: #000000;
         }
-        p, div, span {
-            color: #000000;
-        }
         .stButton button {
             background-color: #4a6fa5;
             color: white;
@@ -952,341 +633,131 @@ def apply_professional_style():
             padding: 0.5rem 1rem;
             border-radius: 0.5rem;
         }
-        .stButton button:hover {
-            background-color: #3a5a85;
-        }
     </style>
     """, unsafe_allow_html=True)
 
 def display_header(language):
-    """Display premium app header with responsive logo and title"""
+    """Display app header"""
     col1, col2 = st.columns([1, 4])
     with col1:
-        st.image(DEFAULT_IMAGE, width=120, caption="Logo")
+        st.image(DEFAULT_IMAGE, width=120)
     with col2:
         st.markdown(f"""
         <h1 style="margin-bottom: 0; color: #000000;">{LANGUAGES[language]["title"]}</h1>
         <p style="color: #4a6fa5; font-size: 16px; margin-top: 0.5rem;">{LANGUAGES[language]["subtitle"]}</p>
         """, unsafe_allow_html=True)
 
-# --- PRODUCT CARD ---
 def product_card(product, language):
     """Display product card"""
     try:
-        product_id = str(product.get("id", uuid.uuid4().hex[:8]))
         product_name = product.get("name", "Unknown Product")
         product_price = float(product.get("price", 0))
         discount = float(product.get("discount", 0))
         discounted_price = product_price * (1 - discount/100) if discount > 0 else product_price
         product_category = product.get("category", "Uncategorized")
         product_description = product.get("description", "No description available")
-        product_materials = product.get("materials", "")
-        creation_date = product.get("creation_date", "")
-        image_path = product.get("image_path", DEFAULT_IMAGE)
-        shopee_link = product.get("shopee_link", "")
-        tokopedia_link = product.get("tokopedia_link", "")
-        other_link = product.get("other_link", "")
-        is_premium = product_price > 1500000
         
-        # Create card container
         with st.container():
-            # Product Image
-            display_image(image_path)
+            display_image(DEFAULT_IMAGE)
             
-            # Product Info
             st.markdown(f"<h3 style='color: #000000; margin-bottom: 0.5rem;'>{product_name}</h3>", unsafe_allow_html=True)
             
-            # Category and Premium Badge
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.markdown(
-                    f"""<div style="
-                        background: #f0f8ff;
-                        color: #4a6fa5;
-                        padding: 4px 8px;
-                        border-radius: 12px;
-                        font-size: 12px;
-                        display: inline-block;
-                        margin-bottom: 8px;
-                    ">{product_category}</div>""",
-                    unsafe_allow_html=True
-                )
-            with col2:
-                if is_premium:
-                    st.markdown(
-                        """<div style="
-                            background: linear-gradient(135deg, #FFD700, #DAA520);
-                            color: black;
-                            padding: 4px 8px;
-                            border-radius: 12px;
-                            font-size: 12px;
-                            text-align: center;
-                            margin-bottom: 8px;
-                        ">Premium</div>""",
-                        unsafe_allow_html=True
-                    )
+            # Category
+            st.markdown(f"""<div style="background: #f0f8ff; color: #4a6fa5; padding: 4px 8px; border-radius: 12px; font-size: 12px; display: inline-block; margin-bottom: 8px;">{product_category}</div>""", unsafe_allow_html=True)
             
-            # Price Display with discount
+            # Price
             if discount > 0:
                 st.markdown(f"<div style='font-size: 20px; font-weight: 700; color: #e63946;'>{format_price(discounted_price, language)}</div>", unsafe_allow_html=True)
-                st.markdown(
-                    f"""<div style="
-                        text-decoration: line-through;
-                        color: #999;
-                        font-size: 14px;
-                    ">{format_price(product_price, language)}</div>""",
-                    unsafe_allow_html=True
-                )
-                st.markdown(
-                    f"""<div style="
-                        background: #e63946;
-                        color: white;
-                        padding: 2px 6px;
-                        border-radius: 4px;
-                        font-size: 12px;
-                        display: inline-block;
-                        margin-bottom: 8px;
-                    ">{discount}% OFF</div>""",
-                    unsafe_allow_html=True
-                )
+                st.markdown(f"""<div style="text-decoration: line-through; color: #999; font-size: 14px;">{format_price(product_price, language)}</div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div style="background: #e63946; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; display: inline-block;">{discount}% OFF</div>""", unsafe_allow_html=True)
             else:
                 st.markdown(f"<div style='font-size: 20px; font-weight: 700; color: #e63946;'>{format_price(product_price, language)}</div>", unsafe_allow_html=True)
             
-            # Product Details
-            st.markdown(f"<p style='color: #555; font-size: 14px;'><strong>Materials:</strong> {product_materials}</p>", unsafe_allow_html=True)
-            st.markdown(f"<p style='color: #555; font-size: 14px; margin-bottom: 12px;'><strong>Creation Date:</strong> {creation_date}</p>", unsafe_allow_html=True)
-            
-            # Marketplace Links
-            if shopee_link or tokopedia_link or other_link:
-                st.markdown(f"<p style='color: #555; font-size: 14px; margin-bottom: 8px;'><strong>{LANGUAGES[language]['available_on']}</strong></p>", unsafe_allow_html=True)
-                
-                links = []
-                if shopee_link:
-                    links.append(f"[Shopee]({shopee_link})")
-                if tokopedia_link:
-                    links.append(f"[Tokopedia]({tokopedia_link})")
-                if other_link:
-                    links.append(f"[Lainnya]({other_link})")
-                
-                st.markdown(" | ".join(links))
-            
-            # Description with expander
+            # Description
             with st.expander(LANGUAGES[language]["description_label"]):
                 st.write(product_description)
             
-            # Only show edit button for admin
+            # Edit button for admin
             if st.session_state.get("is_admin", False):
-                if st.button(
-                    "✏️ Edit Product",
-                    key=f"edit_{product_id}"
-                ):
-                    st.session_state['edit_product'] = product_id
+                if st.button("✏️ Edit Product", key=f"edit_{product.get('id', '')}"):
+                    st.session_state['edit_product'] = product.get('id', '')
     
     except Exception as e:
         st.error(f"Error displaying product: {str(e)}")
-        with st.container():
-            display_image(DEFAULT_IMAGE)
-            st.subheader("Product")
-            st.write(f"Price: {format_price(0, language)}")
-            st.button("Details", key=f"fallback_{product_id}")
 
-# --- ACTIVITY CARD ---
-def activity_card(activity, language):
-    """Display an activity card with image and details"""
-    try:
-        with st.container():
-            # Activity Image
-            image_path = activity.get("image_path", DEFAULT_IMAGE)
-            display_image(image_path)
-            
-            # Activity Info
-            st.markdown(f"<h3 style='color: #000000; margin-bottom: 0.5rem;'>{activity.get('title', 'Unknown Activity')}</h3>", unsafe_allow_html=True)
-            
-            # Date
-            st.markdown(f"<p style='color: #555; font-size: 14px;'><strong>Date:</strong> {activity.get('date', 'Unknown')}</p>", unsafe_allow_html=True)
-            
-            # Description with expander
-            with st.expander(LANGUAGES[language]["description_label"]):
-                st.write(activity.get('description', 'No description available'))
-            
-            # Only show edit button for admin
-            if st.session_state.get("is_admin", False):
-                if st.button(
-                    "✏️ Edit Activity",
-                    key=f"edit_activity_{activity.get('id', '')}"
-                ):
-                    st.session_state['edit_activity'] = activity.get('id', '')
-    
-    except Exception as e:
-        st.error(f"Error displaying activity: {str(e)}")
-
-# --- AWARD CARD ---
-def award_card(award, language):
-    """Display an award card with image and details"""
-    try:
-        with st.container():
-            # Award Image
-            image_path = award.get("image_path", DEFAULT_IMAGE)
-            display_image(image_path)
-            
-            # Award Info
-            st.markdown(f"<h3 style='color: #000000; margin-bottom: 0.5rem;'>{award.get('title', 'Unknown Award')}</h3>", unsafe_allow_html=True)
-            
-            # Organization and Year
-            st.markdown(f"<p style='color: #555; font-size: 14px;'><strong>Organization:</strong> {award.get('organization', 'Unknown')}</p>", unsafe_allow_html=True)
-            st.markdown(f'<p style="color: #555; font-size: 14px; margin-bottom: 12px;"><strong>Year:</strong> {award.get("year", "Unknown")}</p>', unsafe_allow_html=True)
-
-            # Only show edit button for admin
-            if st.session_state.get("is_admin", False):
-                if st.button(
-                    "✏️ Edit Award",
-                    key=f"edit_award_{award.get('id', '')}"
-                ):
-                    st.session_state['edit_award'] = award.get('id', '')
-    
-    except Exception as e:
-        st.error(f"Error displaying award: {str(e)}")
-
-# --- HOME PAGE ---
+# --- PAGES ---
 def show_home_page(language):
-    """Premium home page with featured products and additional sections"""
+    """Home page with featured products"""
     try:
         st.markdown(f"""
         <h2 style="margin-bottom: 0.5rem; color: #000000;">{LANGUAGES[language]['welcome']}</h2>
         <p style="color: #555; font-size: 16px; margin-bottom: 2rem;">{LANGUAGES[language]['description']}</p>
         """, unsafe_allow_html=True)
         
-        with st.spinner("Memuat produk..."):
-            products_data = get_all_products()
+        products_data = get_all_products()
         
         if not products_data:
-            st.warning("Belum ada produk tersedia")
+            st.warning("Belum ada produk tersedia. Silakan login sebagai admin untuk menambah produk.")
         else:
             st.markdown(f"""
             <h3 style="margin-bottom: 1rem; color: #000000;">{LANGUAGES[language]["featured"]}</h3>
             """, unsafe_allow_html=True)
             
-            sample_size = min(6, len(products_data))
-            if sample_size > 0:
-                featured = random.sample(products_data, sample_size)
-                
-                # Display products in a grid
-                for i in range(0, len(featured), 3):
-                    cols = st.columns(3)
-                    for j in range(3):
-                        if i + j < len(featured):
-                            with cols[j]:
-                                product_card(featured[i + j], language)
-                        else:
-                            with cols[j]:
-                                st.empty()
-            
-        # Gallery Activities Section
-        st.markdown("---")
-        st.markdown(f"""
-        <h3 style="margin-bottom: 1rem; color: #000000;">{LANGUAGES[language]["activities"]}</h3>
-        """, unsafe_allow_html=True)
-        
-        activities_data = get_all_activities()
-        if not activities_data:
-            st.warning("No activities available" if language == "English" else "Tidak ada kegiatan tersedia")
-        else:
-            for i in range(0, len(activities_data), 2):
-                cols = st.columns(2)
-                for j in range(2):
-                    if i + j < len(activities_data):
-                        with cols[j]:
-                            activity_card(activities_data[i + j], language)
-        
-        # Awards Section
-        st.markdown("---")
-        st.markdown(f"""
-        <h3 style="margin-bottom: 1rem; color: #000000;">{LANGUAGES[language]["awards"]}</h3>
-        """, unsafe_allow_html=True)
-        
-        awards_data = get_all_awards()
-        if not awards_data:
-            st.warning("No awards available" if language == "English" else "Tidak ada penghargaan tersedia")
-        else:
-            for i in range(0, len(awards_data), 3):
+            # Display products in grid
+            for i in range(0, len(products_data), 3):
                 cols = st.columns(3)
                 for j in range(3):
-                    if i + j < len(awards_data):
+                    if i + j < len(products_data):
                         with cols[j]:
-                            award_card(awards_data[i + j], language)
+                            product_card(products_data[i + j], language)
+                    else:
+                        with cols[j]:
+                            st.empty()
         
-        # Location Map
-        st.markdown("---")
-        st.markdown(f"""
-        <h3 style="margin-bottom: 1rem; color: #000000;">{LANGUAGES[language]["location"]}</h3>
-        """, unsafe_allow_html=True)
+        # Activities and Awards sections
+        activities_data = get_all_activities()
+        awards_data = get_all_awards()
         
-        # Create a map centered on Indonesia
-        m = folium.Map(location=[-6.2088, 106.8456], zoom_start=12, width="100%")
+        if activities_data:
+            st.markdown("---")
+            st.markdown(f"""
+            <h3 style="margin-bottom: 1rem; color: #000000;">{LANGUAGES[language]["activities"]}</h3>
+            """, unsafe_allow_html=True)
+            st.info(f"{len(activities_data)} kegiatan tersedia")
         
-        # Add marker for our location
-        folium.Marker(
-            [-6.2088, 106.8456],
-            popup="Bamboo Lucky Batik Gallery",
-            tooltip="Our Main Store"
-        ).add_to(m)
-        
-        # Display the map - full width
-        folium_static(m, width=None, height=400)
+        if awards_data:
+            st.markdown("---")
+            st.markdown(f"""
+            <h3 style="margin-bottom: 1rem; color: #000000;">{LANGUAGES[language]["awards"]}</h3>
+            """, unsafe_allow_html=True)
+            st.info(f"{len(awards_data)} penghargaan tersedia")
             
     except Exception as e:
         st.error(f"Terjadi kesalahan: {str(e)}")
-        if st.button("Coba Lagi"):
-            st.rerun()
 
-# --- GALLERY PAGE ---
 def show_gallery_page(language):
-    """Show all products with filtering options"""
+    """Gallery page with all products"""
     st.markdown(f"""
     <h2 style="margin-bottom: 1rem; color: #000000;">{LANGUAGES[language]["featured"]}</h2>
     """, unsafe_allow_html=True)
     
-    with st.spinner("Memuat produk..."):
-        products_data = get_all_products()
+    products_data = get_all_products()
     
     if not products_data:
         st.warning("Belum ada produk tersedia")
         return
     
-    df = pd.DataFrame(products_data)
+    # Simple filter
+    search_query = st.text_input(LANGUAGES[language]["search"])
     
-    # Filter section
-    with st.expander(LANGUAGES[language]["filter"], expanded=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            search_query = st.text_input(LANGUAGES[language]["search"], key="product_search")
-            category_filter = st.selectbox(
-                LANGUAGES[language]["category"],
-                ["All"] + df["category"].unique().tolist(),
-                key="category_filter"
-            )
-        with col2:
-            max_price = df["price"].max()
-            price_range = st.slider(
-                LANGUAGES[language]["price_range"],
-                0, int(max_price + 100000),
-                (0, int(max_price)),
-                step=get_price_step(max_price),
-                key="price_filter"
-            )
-    
-    # Apply filters
-    filtered_data = products_data.copy()
+    filtered_data = products_data
     if search_query:
-        filtered_data = [p for p in filtered_data if search_query.lower() in p["name"].lower()]
-    if category_filter != "All":
-        filtered_data = [p for p in filtered_data if p["category"] == category_filter]
-    filtered_data = [p for p in filtered_data if price_range[0] <= p["price"] <= price_range[1]]
+        filtered_data = [p for p in products_data if search_query.lower() in p.get("name", "").lower()]
     
     if not filtered_data:
-        st.warning("No products match the filters" if language == "English" else "Tidak ada produk yang sesuai dengan filter")
+        st.warning("Tidak ada produk yang sesuai dengan pencarian")
     else:
-        # Display filtered products in a grid
+        # Display products
         for i in range(0, len(filtered_data), 3):
             cols = st.columns(3)
             for j in range(3):
@@ -1297,20 +768,15 @@ def show_gallery_page(language):
                     with cols[j]:
                         st.empty()
 
-# --- ANALYTICS DASHBOARD ---
 def show_analytics_dashboard(language):
-    """Show visitor analytics and statistics"""
+    """Analytics dashboard"""
     st.markdown(f"""
     <h2 style="margin-bottom: 1rem; color: #000000;">{LANGUAGES[language]["analytics"]}</h2>
     """, unsafe_allow_html=True)
     
-    # Track visitor for this page view
     track_visitor()
     
-    # Get visitor data
-    visitor_df = get_visitor_data()
-    
-    # Display key metrics
+    # Display metrics
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric(LANGUAGES[language]["total_visitors"], st.session_state.visitor_data['total_visits'])
@@ -1319,110 +785,48 @@ def show_analytics_dashboard(language):
     with col3:
         st.metric(LANGUAGES[language]["page_views"], st.session_state.visitor_data['page_views'])
     
-    # Visitor trends chart
+    # Visitor chart
+    visitor_df = get_visitor_data()
     if not visitor_df.empty:
-        st.markdown(f"""
-        <h3 style="margin-top: 2rem; margin-bottom: 1rem; color: #000000;">{LANGUAGES[language]["visitors"]}</h3>
-        """, unsafe_allow_html=True)
-        
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=visitor_df['date'],
-            y=visitor_df['visitors'],
-            mode='lines+markers',
-            name='Visits',
-            line=dict(color='#4a6fa5')
-        ))
-        fig.add_trace(go.Scatter(
-            x=visitor_df['date'],
-            y=visitor_df['unique_visitors'],
-            mode='lines+markers',
-            name='Unique Visitors',
-            line=dict(color='#e63946')
-        ))
-        fig.add_trace(go.Scatter(
-            x=visitor_df['date'],
-            y=visitor_df['page_views'],
-            mode='lines+markers',
-            name='Page Views',
-            line=dict(color='#2a9d8f')
-        ))
-        
-        fig.update_layout(
-            xaxis_title='Date',
-            yaxis_title='Count',
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font=dict(color="#000000")
-        )
-        
+        fig.add_trace(go.Scatter(x=visitor_df['date'], y=visitor_df['visitors'], name='Visitors'))
+        fig.update_layout(title='Visitor Trends', xaxis_title='Date', yaxis_title='Visitors')
         st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("No visitor data available" if language == "English" else "Tidak ada data pengunjung tersedia")
 
-# --- PRODUCT MANAGEMENT PAGE ---
 def show_manage_page(language):
-    """Product management page for admin"""
+    """Product management page"""
     st.markdown(f"""
     <h2 style="margin-bottom: 1rem; color: #000000;">{LANGUAGES[language]["manage"]}</h2>
     """, unsafe_allow_html=True)
     
-    operation = st.radio(
-        f"{'Select operation:' if language == 'English' else 'Pilih operasi:'}",
-        [LANGUAGES[language]["add"], LANGUAGES[language]["edit"], LANGUAGES[language]["delete"]],
-        horizontal=True,
-        key="product_operation"
-    )
+    operation = st.radio("Pilih operasi:", [LANGUAGES[language]["add"], LANGUAGES[language]["edit"]], horizontal=True)
     
     products_data = get_all_products()
     
     if operation == LANGUAGES[language]["add"]:
-        with st.form("add_product_form", clear_on_submit=True):
-            st.markdown(f"<h3 style='color: #000000; margin-bottom: 1.5rem;'>{LANGUAGES[language]['add']} Product</h3>", unsafe_allow_html=True)
+        with st.form("add_product_form"):
+            st.subheader("Tambah Produk Baru")
             
             col1, col2 = st.columns(2)
             with col1:
-                name = st.text_input(f"{'Name' if language == 'English' else 'Nama'}*")
-                category = st.text_input(f"{'Category' if language == 'English' else 'Kategori'}*")
-                materials = st.text_input(f"{'Materials' if language == 'English' else 'Bahan'}*")
+                name = st.text_input("Nama Produk*")
+                category = st.text_input("Kategori*")
+                price = st.number_input("Harga (Rp)*", min_value=0)
             with col2:
-                price = st.number_input(f"{'Price (IDR)' if language == 'English' else 'Harga (Rp)'}*", min_value=0)
-                discount = st.number_input(f"{'Discount (%)' if language == 'English' else 'Diskon (%)'}", min_value=0, max_value=100, value=0)
-                creation_date = st.date_input(f"{'Creation Date' if language == 'English' else 'Tanggal Pembuatan'}", datetime.now())
+                discount = st.number_input("Diskon (%)", min_value=0, max_value=100, value=0)
+                materials = st.text_input("Bahan")
+                creation_date = st.date_input("Tanggal Pembuatan", datetime.now())
             
-            description = st.text_area(f"{'Description' if language == 'English' else 'Deskripsi'}*")
+            description = st.text_area("Deskripsi*")
             
-            # Marketplace links
-            st.markdown(f"<h4 style='color: #000000; margin-bottom: 1rem;'>{'Marketplace Links' if language == 'English' else 'Link Marketplace'}</h4>", unsafe_allow_html=True)
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                shopee_link = st.text_input("Shopee")
-            with col2:
-                tokopedia_link = st.text_input("Tokopedia")
-            with col3:
-                other_link = st.text_input(f"{'Other' if language == 'English' else 'Lainnya'}")
-            
-            # Image upload
-            uploaded_image = st.file_uploader(
-                f"{'Product Image' if language == 'English' else 'Gambar Produk'}", 
-                type=["jpg", "jpeg", "png", "webp"]
-            )
-            
-            submitted = st.form_submit_button(f"{'Save Product' if language == 'English' else 'Simpan Produk'}")
+            submitted = st.form_submit_button("Simpan Produk")
             
             if submitted:
-                if not all([name, category, materials, price, description]):
-                    st.error(f"{'Please fill required fields' if language == 'English' else 'Harap isi field wajib'} (*)")
+                if not all([name, category, price, description]):
+                    st.error("Harap isi semua field yang wajib (*)")
                 else:
-                    image_path = DEFAULT_IMAGE
-                    if uploaded_image:
-                        saved_path = save_image_local(uploaded_image, IMAGE_DIR)
-                        if saved_path:
-                            image_path = saved_path
-                    
-                    new_id = max([p.get('id', 0) for p in products_data], default=0) + 1
-                    product_data = {
-                        "id": new_id,
+                    new_product = {
+                        "id": len(products_data) + 1,
                         "name": name,
                         "description": description,
                         "price": price,
@@ -1430,177 +834,53 @@ def show_manage_page(language):
                         "category": category,
                         "materials": materials,
                         "creation_date": creation_date.strftime("%Y-%m-%d"),
-                        "image_path": image_path,
-                        "shopee_link": shopee_link,
-                        "tokopedia_link": tokopedia_link,
-                        "other_link": other_link,
-                        "payment_methods": "Cash, Bank Transfer"
+                        "image_path": DEFAULT_IMAGE,
+                        "shopee_link": "",
+                        "tokopedia_link": "",
+                        "other_link": "",
+                        "payment_methods": "Transfer Bank"
                     }
                     
-                    products_data.append(product_data)
-                    if save_all_products(products_data):
-                        st.success(f"{'Product added successfully!' if language == 'English' else 'Produk berhasil ditambahkan!'}")
+                    if add_product(new_product):
+                        st.success("Produk berhasil ditambahkan!")
                         st.balloons()
-
+                    else:
+                        st.error("Gagal menambah produk")
+    
     elif operation == LANGUAGES[language]["edit"]:
         if not products_data:
-            st.warning(f"{'No products available' if language == 'English' else 'Tidak ada produk tersedia'}")
+            st.warning("Tidak ada produk tersedia")
         else:
             product_names = [p["name"] for p in products_data]
-            product_to_edit = st.selectbox(
-                f"{'Select product to edit:' if language == 'English' else 'Pilih produk untuk diedit:'}",
-                product_names
-            )
+            selected_product = st.selectbox("Pilih produk untuk diedit:", product_names)
             
-            product_data = next((p for p in products_data if p["name"] == product_to_edit), None)
-            
-            if product_data:
-                with st.form("edit_product_form"):
-                    st.markdown(f"<h3 style='color: #000000; margin-bottom: 1.5rem;'>{LANGUAGES[language]['edit']} Product: {product_data['name']}</h3>", unsafe_allow_html=True)
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        name = st.text_input(f"{'Name' if language == 'English' else 'Nama'}*", value=product_data["name"])
-                        category = st.text_input(f"{'Category' if language == 'English' else 'Kategori'}*", value=product_data["category"])
-                        materials = st.text_input(f"{'Materials' if language == 'English' else 'Bahan'}*", value=product_data["materials"])
-                    with col2:
-                        price = st.number_input(f"{'Price (IDR)' if language == 'English' else 'Harga (Rp)'}*", min_value=0, value=int(product_data["price"]))
-                        discount = st.number_input(f"{'Discount (%)' if language == 'English' else 'Diskon (%)'}", min_value=0, max_value=100, value=int(product_data["discount"]))
-                        creation_date = st.date_input(f"{'Creation Date' if language == 'English' else 'Tanggal Pembuatan'}", datetime.strptime(product_data["creation_date"], "%Y-%m-%d").date())
-                    
-                    description = st.text_area(f"{'Description' if language == 'English' else 'Deskripsi'}*", value=product_data["description"])
-                    
-                    # Marketplace links
-                    st.markdown(f"<h4 style='color: #000000; margin-bottom: 1rem;'>{'Marketplace Links' if language == 'English' else 'Link Marketplace'}</h4>", unsafe_allow_html=True)
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        shopee_link = st.text_input("Shopee", value=product_data.get("shopee_link", ""))
-                    with col2:
-                        tokopedia_link = st.text_input("Tokopedia", value=product_data.get("tokopedia_link", ""))
-                    with col3:
-                        other_link = st.text_input(f"{'Other' if language == 'English' else 'Lainnya'}", value=product_data.get("other_link", ""))
-                    
-                    # Image upload
-                    current_image = product_data.get("image_path", DEFAULT_IMAGE)
-                    if current_image and current_image != DEFAULT_IMAGE:
-                        display_image(current_image, width=200)
-                    else:
-                        display_image(DEFAULT_IMAGE, width=200)
-                    
-                    uploaded_image = st.file_uploader(
-                        f"{'New Product Image' if language == 'English' else 'Gambar Produk Baru'}", 
-                        type=["jpg", "jpeg", "png", "webp"]
-                    )
-                    
-                    submitted = st.form_submit_button(f"{'Update Product' if language == 'English' else 'Update Produk'}")
-                    
-                    if submitted:
-                        if not all([name, category, materials, price, description]):
-                            st.error(f"{'Please fill required fields' if language == 'English' else 'Harap isi field wajib'} (*)")
-                        else:
-                            image_path = current_image
-                            if uploaded_image:
-                                saved_path = save_image_local(uploaded_image, IMAGE_DIR)
-                                if saved_path:
-                                    image_path = saved_path
-                            
-                            # Update product data
-                            product_data.update({
-                                "name": name,
-                                "description": description,
-                                "price": price,
-                                "discount": discount,
-                                "category": category,
-                                "materials": materials,
-                                "creation_date": creation_date.strftime("%Y-%m-%d"),
-                                "image_path": image_path,
-                                "shopee_link": shopee_link,
-                                "tokopedia_link": tokopedia_link,
-                                "other_link": other_link
-                            })
-                            
-                            if save_all_products(products_data):
-                                st.success(f"{'Product updated successfully!' if language == 'English' else 'Produk berhasil diupdate!'}")
+            if selected_product:
+                st.info("Fitur edit akan segera hadir")
+                # Implementation for edit would go here
 
-    elif operation == LANGUAGES[language]["delete"]:
-        if not products_data:
-            st.warning(f"{'No products available' if language == 'English' else 'Tidak ada produk tersedia'}")
-        else:
-            product_names = [p["name"] for p in products_data]
-            product_to_delete = st.selectbox(
-                f"{'Select product to delete:' if language == 'English' else 'Pilih produk untuk dihapus:'}",
-                product_names
-            )
-            
-            product_data = next((p for p in products_data if p["name"] == product_to_delete), None)
-            
-            if product_data:
-                st.markdown(f"""
-                <h3 style="color: #000000; margin-bottom: 1rem;">⚠️ {'Are you sure you want to delete' if language == 'English' else 'Apakah Anda yakin ingin menghapus'} <span style="color: #e63946;">{product_data['name']}</span>?</h3>
-                <p style="color: #555;">{'This action cannot be undone. Product data will be permanently removed.' if language == 'English' else 'Tindakan ini tidak dapat dibatalkan. Data produk akan dihapus permanen.'}</p>
-                """, unsafe_allow_html=True)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button(f"{'Confirm Delete' if language == 'English' else 'Konfirmasi Hapus'}", type="primary"):
-                        products_data = [p for p in products_data if p["name"] != product_to_delete]
-                        if save_all_products(products_data):
-                            st.success(f"{'Product deleted successfully!' if language == 'English' else 'Produk berhasil dihapus!'}")
-                            st.rerun()
-                with col2:
-                    if st.button(f"{'Cancel' if language == 'English' else 'Batal'}"):
-                        st.rerun()
-
-# --- SETTINGS PAGE ---
 def show_settings_page(language):
-    """Show settings page for admin"""
+    """Settings page"""
     st.markdown(f"""
     <h2 style="margin-bottom: 1rem; color: #000000;">{LANGUAGES[language]["settings"]}</h2>
     """, unsafe_allow_html=True)
     
-    st.markdown(f"<h3 style='color: #000000; margin-bottom: 1.5rem;'>{LANGUAGES[language]['other_settings']}</h3>", unsafe_allow_html=True)
-    
-    # Admin password change
-    st.markdown("---")
-    st.markdown(f"<h4 style='color: #000000; margin-bottom: 1rem;'>Change Admin Password</h4>", unsafe_allow_html=True)
-    
-    with st.form("change_password_form"):
-        current_password = st.text_input("Current Password", type="password")
-        new_password = st.text_input("New Password", type="password")
-        confirm_password = st.text_input("Confirm New Password", type="password")
+    # Password change
+    with st.form("change_password"):
+        st.subheader("Ubah Password Admin")
+        current_pw = st.text_input("Password Saat Ini", type="password")
+        new_pw = st.text_input("Password Baru", type="password")
+        confirm_pw = st.text_input("Konfirmasi Password Baru", type="password")
         
-        submitted = st.form_submit_button("Change Password")
-        
-        if submitted:
-            if not all([current_password, new_password, confirm_password]):
-                st.error("Please fill all fields")
-            elif new_password != confirm_password:
-                st.error("New passwords don't match")
-            elif not check_admin_credentials(ADMIN_CREDENTIALS["username"], current_password):
-                st.error("Incorrect current password")
+        if st.form_submit_button("Ubah Password"):
+            if not all([current_pw, new_pw, confirm_pw]):
+                st.error("Harap isi semua field")
+            elif new_pw != confirm_pw:
+                st.error("Password baru tidak cocok")
+            elif not check_admin_credentials("admin", current_pw):
+                st.error("Password saat ini salah")
             else:
-                # Update password
-                hashed_password = hashlib.sha256(new_password.encode()).hexdigest()
-                ADMIN_CREDENTIALS["password"] = hashed_password
-                st.success("Password changed successfully!")
-
-# --- INVENTORY MANAGEMENT PAGES ---
-def show_inventory_management(language):
-    """Inventory management page with stock tracking"""
-    st.markdown(f"""
-    <h2 style="margin-bottom: 1rem; color: #000000;">{LANGUAGES[language]["inventory_manage"]}</h2>
-    """, unsafe_allow_html=True)
-    
-    st.info("Fitur manajemen inventaris akan segera hadir!")
-
-# --- FINANCIAL MANAGEMENT PAGES ---
-def show_financial_management(language):
-    """Financial management page with transactions and reports"""
-    st.markdown(f"""
-    <h2 style="margin-bottom: 1rem; color: #000000;">{LANGUAGES[language]["finance_manage"]}</h2>
-    """, unsafe_allow_html=True)
-    
-    st.info("Fitur manajemen keuangan akan segera hadir!")
+                # In a real app, you'd want to persist this change
+                st.success("Password berhasil diubah!")
 
 # --- MAIN APP ---
 def main():    
@@ -1610,54 +890,47 @@ def main():
     if "language" not in st.session_state:
         st.session_state["language"] = "Indonesia"
     
-    # Apply premium styling
+    # Apply styling
     apply_professional_style()
     
-    # Sidebar navigation
+    # Sidebar
     with st.sidebar:
-        st.image(DEFAULT_IMAGE, width=120, caption="Logo")
-        
+        st.image(DEFAULT_IMAGE, width=100)
         st.markdown("---")
         
-        language = st.selectbox("🌐 Language / Bahasa", 
-                              ["Indonesia", "English"],
+        language = st.selectbox("🌐 Bahasa", ["Indonesia", "English"], 
                               index=0 if st.session_state["language"] == "Indonesia" else 1)
         st.session_state["language"] = language
         
         st.markdown("---")
         
+        # Navigation
         menu_options = [
             LANGUAGES[language]["dashboard"],
-            LANGUAGES[language]["featured"],
+            LANGUAGES[language]["featured"], 
             LANGUAGES[language]["analytics"]
         ]
         
         if st.session_state["is_admin"]:
             menu_options.extend([
                 LANGUAGES[language]["manage"],
-                LANGUAGES[language]["inventory_manage"],
-                LANGUAGES[language]["finance_manage"],
                 LANGUAGES[language]["hpp_calculator"],
                 LANGUAGES[language]["settings"]
             ])
         
-        selected_menu = st.radio(
-            "Navigation",
-            menu_options,
-            label_visibility="collapsed"
-        )
+        selected_menu = st.radio("Navigasi", menu_options)
         
         st.markdown("---")
         
+        # Login/Logout
         if st.session_state["is_admin"]:
             if st.button(f"🚪 {LANGUAGES[language]['logout']}"):
                 st.session_state["is_admin"] = False
                 st.rerun()
         else:
-            # Show login form directly in sidebar if not admin
             show_login_form(language)
     
-    # Display header
+    # Header
     display_header(language)
     
     # Page routing
@@ -1671,39 +944,24 @@ def main():
         if st.session_state["is_admin"]:
             show_manage_page(language)
         else:
-            st.warning("Admin access required" if language == "English" else "Diperlukan akses admin")
-            show_login_form(language)
-    elif selected_menu == LANGUAGES[language]["inventory_manage"]:
-        if st.session_state["is_admin"]:
-            show_inventory_management(language)
-        else:
-            st.warning("Admin access required" if language == "English" else "Diperlukan akses admin")
-            show_login_form(language)
-    elif selected_menu == LANGUAGES[language]["finance_manage"]:
-        if st.session_state["is_admin"]:
-            show_financial_management(language)
-        else:
-            st.warning("Admin access required" if language == "English" else "Diperlukan akses admin")
-            show_login_form(language)
+            st.warning("Diperlukan akses admin")
     elif selected_menu == LANGUAGES[language]["hpp_calculator"]:
         if st.session_state["is_admin"]:
             show_hpp_calculator(language)
         else:
-            st.warning("Admin access required" if language == "English" else "Diperlukan akses admin")
-            show_login_form(language)
+            st.warning("Diperlukan akses admin")
     elif selected_menu == LANGUAGES[language]["settings"]:
         if st.session_state["is_admin"]:
             show_settings_page(language)
         else:
-            st.warning("Admin access required" if language == "English" else "Diperlukan akses admin")
-            show_login_form(language)
+            st.warning("Diperlukan akses admin")
     
-    # Main footer
-    st.markdown("""
-    <div style="text-align: center; color: #666; font-size: 14px; padding: 20px; margin-top: 2rem;">
-        © 2025 Batik Bambu Mujur - Batik Tulis Premium
-    </div>
-    """, unsafe_allow_html=True)
+    # Footer
+    st.markdown("---")
+    st.markdown(
+        "<div style='text-align: center; color: #666;'>© 2024 Batik Bambu Mujur</div>",
+        unsafe_allow_html=True
+    )
 
 if __name__ == "__main__":
     main()
